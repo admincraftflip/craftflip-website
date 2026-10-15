@@ -13,7 +13,7 @@ CraftFlip is a premium subscription-based flipbook platform built by The CraftAx
 Live URL: flip.thecraftaxis.com
 Product name: CraftFlip
 Owner: Asif, CEO of The CraftAxis, Dhaka, Bangladesh
-Status: Milestone 1 (project foundation) complete. Milestone 2 (Firebase Authentication) in progress. Started October 2026.
+Status: Milestones 1 and 3 complete. Milestone 2 (Firebase Authentication) committed; email/password check pending. Milestone 4 (PDF conversion) is next. Started October 2026.
 
 ---
 
@@ -43,9 +43,50 @@ Secondary audience (growth phase):
 
 ## Current milestone
 
-**Milestone 2: Firebase Authentication**
+**Milestone 4: PDF conversion**
 
-Status: In progress
+Status: Not started
+
+---
+
+## Completed milestones
+
+**Milestone 3: PDF upload to Cloudinary** — Complete (October 2026)
+
+Goal: A signed-in user uploads a PDF from the dashboard. The backend validates it, stores the original privately in Cloudinary, and records it in MongoDB as a Flipbook owned by that user.
+
+Acceptance criteria (all verified October 2026 by the automated tests in backend/tests, run with npm test, plus a real signed-in browser upload):
+- [x] POST /api/flipbooks (multipart/form-data, file field "pdf") requires a valid Firebase ID token; without one it returns a structured 401
+- [x] Only PDF files are accepted: the file content must start with the PDF signature (%PDF-). The filename and declared MIME type are not trusted. Any other file, including a non-PDF renamed to .pdf, returns a structured 400
+- [x] Maximum file size 50MB, enforced in the Multer config and checked again in the controller; larger files return a structured 413
+- [x] Uploads are held in memory (Multer memory storage); nothing is written to the server's disk
+- [x] The original PDF is stored in Cloudinary as a private asset (resource_type raw, delivery type authenticated). Cloudinary URLs are never returned to the client (checked against the live account: the public URL returns 404, unsigned and signed delivery URLs return 401)
+- [x] A Flipbook document stores ownerId (ObjectId reference to User), title, unique slug (see Slug rules), status, original file details and Cloudinary asset details, with createdAt and updatedAt. Indexes: slug (unique), ownerId, createdAt
+- [x] New flipbooks get status "uploaded" (original stored, waiting for conversion). The statuses processing, ready and failed are reserved for page conversion in Milestone 4
+- [x] If the Cloudinary upload fails, no Flipbook document is created. If saving the Flipbook fails after the Cloudinary upload, the uploaded asset is deleted so no orphaned asset remains
+- [x] GET /api/flipbooks returns only the signed-in user's flipbooks. GET /api/flipbooks/:id returns a structured 404 for a flipbook the user does not own
+- [x] Uploads are rate limited per user; over the limit returns a structured 429
+- [x] If Cloudinary credentials are missing, the server still starts and uploads return a structured 503
+- [x] Dashboard: a PDF upload control with upload progress, success and error toasts, and a list of the user's uploaded PDFs with their status
+- [x] Verified with a real signed-in browser upload that reaches Cloudinary
+- [x] No credentials or secrets are committed to Git
+
+Known limit: the Cloudinary Free plan caps each file at 10 MB, below the 50MB product limit. PDFs between 10 and 50MB are refused by Cloudinary and get a structured 413. Accepting 50MB PDFs requires a Cloudinary plan with a larger per-file limit; see REFERENCE.md, "PDF upload and storage".
+
+Environment:
+- Backend: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in backend/.env (Railway variables in deployment)
+- Frontend: no new variables
+
+What is NOT part of this milestone:
+- PDF-to-image conversion, page count limits (checked after conversion), OG image (Milestones 4 and 12)
+- Flipbook viewer, publishing, sharing, slug editing
+- Deleting or renaming flipbooks, full dashboard (Milestone 7)
+- Free plan limit of 3 live flipbooks: enforced once flipbooks can be published and deleted (Milestone 7), so a user is never blocked without a way to free a slot
+- Billing, templates, Facebook sign-in
+
+---
+
+**Milestone 2: Firebase Authentication** — Committed (e85bfb3, October 2026); email/password end-to-end check still pending
 
 Goal: Users can sign in with Firebase on the frontend, the backend verifies their Firebase ID token with Firebase Admin SDK, and each authenticated user has a matching User document in MongoDB.
 
@@ -75,8 +116,6 @@ What is NOT part of this milestone:
 - Welcome email via Resend
 
 ---
-
-## Completed milestones
 
 **Milestone 1: Project foundation** — Complete (October 2026)
 
@@ -368,9 +407,9 @@ Upload failure: user notified with retry option. Flipbook slot not consumed on f
 Milestone numbers are the single numbering used across all project documents. Each service account (Firebase, Cloudinary, Paddle, Resend) is created in the milestone that first needs it.
 
 1. Project foundation: folder structure, both servers running locally, MongoDB connected (complete)
-2. Firebase Authentication: Google + email/password (current). Facebook sign-in deferred until Meta credentials are available
-3. PDF upload to Cloudinary working
-4. PDF conversion prototype and validation
+2. Firebase Authentication: Google + email/password (committed; email/password check pending). Facebook sign-in deferred until Meta credentials are available
+3. PDF upload to Cloudinary working (complete)
+4. PDF conversion prototype and validation (current)
 5. Flipbook viewer with Luxury Flip style (first style only)
 6. Remaining three flip styles and visual style picker
 7. Dashboard and flipbook management

@@ -86,6 +86,13 @@ Confirm:
 
 **Milestone 1 is complete when both servers run with no errors and /api/health reports the database as connected.**
 
+### Checks
+
+```bash
+cd backend && npm test              # backend tests (Node's built-in test runner; no services needed)
+cd frontend && npm run lint && npm run build
+```
+
 ---
 
 ## Required service accounts (add credentials as you reach each milestone)
@@ -114,7 +121,10 @@ Confirm:
 ### Milestone 3 (PDF upload)
 **Cloudinary** — https://cloudinary.com
 - Create free account
-- Copy Cloud Name, API Key, API Secret into backend/.env
+- Copy Cloud Name, API Key, API Secret into backend/.env as CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET (Cloudinary console > Settings > API Keys)
+- Restart the backend: it logs `Cloudinary configured (cloud: ...)`. Without credentials it logs `Cloudinary not configured` and uploads return 503
+- Test: sign in, upload a PDF on /dashboard, and confirm it appears in the list with status Uploaded and in the Cloudinary Media Library under craftflip/users/
+- The Cloudinary Free plan accepts files up to 10 MB only; larger PDFs are refused with a 413 until the plan allows larger files
 
 ### Milestone 10 (billing)
 **Paddle** — https://paddle.com

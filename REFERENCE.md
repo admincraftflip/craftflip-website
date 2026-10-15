@@ -191,6 +191,24 @@ Rate limit headers follow the IETF draft-8 RateLimit / RateLimit-Policy format; 
 
 ---
 
+## PDF upload and storage (Milestone 3)
+
+Decision: the original PDF is uploaded through the backend and stored in Cloudinary as a private asset.
+
+- Endpoint: POST /api/flipbooks (multipart/form-data, one file in the "pdf" field), behind requireAuth
+- Multer memory storage: the file is held in memory and never written to the server's disk. 50MB limit in Multer, checked again in the controller
+- File type: the file's first bytes must be a PDF header (%PDF-1.x or %PDF-2.x). The filename and the MIME type sent by the browser are not trusted
+- Storage: resource_type raw, delivery type authenticated, so the original PDF has no public URL (a public /upload/ URL returns 404 and an unsigned authenticated URL returns 401). Cloudinary URLs and asset details are never sent to the client. On the current account even signed delivery URLs return 401 ("deny or ACL failure", Cloudinary's account-level PDF delivery restriction). The backend reads an original back through the authenticated API download (private_download_url), which is unaffected
+- Cloudinary plan cap: the Free plan limits each file to 10 MB (raw and image), below the 50MB product limit. Cloudinary rejects larger files with a 400 "File size too large", which the controller returns as a structured 413. Accepting PDFs up to 50MB requires a Cloudinary plan whose per-file limit is at least 50MB; check the plan's limits before launch
+- Cloudinary public ID: craftflip/users/<userId>/flipbooks/<flipbookId>/original.pdf, using MongoDB ObjectIds. Converted page images (Milestone 4) will go under the same flipbook folder
+- Order of operations: the flipbook ID is generated first, the PDF is uploaded to Cloudinary, then the Flipbook document is created. If the Cloudinary upload fails, nothing is written to MongoDB. If the MongoDB write fails, the uploaded asset is deleted; if that delete also fails, the public ID is logged for manual removal
+- Rate limit: 20 upload requests per user per hour (express-rate-limit, keyed by the MongoDB user ID, in-memory store), returning a structured 429. Every upload request counts, including rejected ones
+- Missing Cloudinary credentials: the server still starts and uploads return a structured 503
+- Ownership: list and read queries always filter by ownerId. A flipbook owned by someone else returns the same 404 as a missing one
+- Free plan limit (3 live flipbooks) is not enforced at upload in Milestone 3; it is enforced once publishing and deleting exist (Milestone 7)
+
+---
+
 ## Slug system
 
 Problem: multiple users could create flipbooks with identical titles.
@@ -265,6 +283,5 @@ admin.initializeApp({ credential: admin.credential.cert(serviceAccount) })
 - Loading animation design (placeholder in V1, refined later)
 - Email template designs for Resend
 - Whether Ghostscript is available on Railway by default or requires installation step
-- Cloudinary folder structure for organizing user assets
 - Measurement of PDF conversion performance with realistic brochure files
 - Account linking across sign-in methods (not in V1; see "User identity and account linking")

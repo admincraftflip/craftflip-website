@@ -2,13 +2,18 @@ import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { LogOut } from 'lucide-react'
 import api from '../utils/api'
+import { getApiErrorMessage } from '../utils/apiErrors'
 import { useAuth } from '../hooks/useAuth'
+import PdfUploadCard from '../components/PdfUploadCard'
+import FlipbookList from '../components/FlipbookList'
 
-// Milestone 2 placeholder: confirms the signed-in user's backend profile. The full dashboard is Milestone 7.
+// Placeholder dashboard: account details plus PDF upload (Milestone 3). The full dashboard is Milestone 7.
 export default function DashboardPage() {
   const { signOut } = useAuth()
   const [profile, setProfile] = useState(null)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [flipbooks, setFlipbooks] = useState(null)
+  const [flipbooksLoadFailed, setFlipbooksLoadFailed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -29,6 +34,30 @@ export default function DashboardPage() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadFlipbooks() {
+      try {
+        const response = await api.get('/api/flipbooks')
+        if (!cancelled) setFlipbooks(response.data.data.flipbooks)
+      } catch (error) {
+        if (cancelled) return
+        setFlipbooksLoadFailed(true)
+        toast.error(getApiErrorMessage(error))
+      }
+    }
+
+    loadFlipbooks()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  function handleUploaded(flipbook) {
+    setFlipbooks((current) => [flipbook, ...(current ?? [])])
+  }
 
   async function handleSignOut() {
     try {
@@ -68,6 +97,11 @@ export default function DashboardPage() {
             )}
           </div>
         </section>
+
+        <div className="mt-6 flex flex-col gap-6">
+          <PdfUploadCard onUploaded={handleUploaded} />
+          <FlipbookList flipbooks={flipbooks} loadFailed={flipbooksLoadFailed} />
+        </div>
       </div>
     </main>
   )

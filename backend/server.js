@@ -4,7 +4,9 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
 import { getFirebaseAuth } from './config/firebaseAdmin.js'
+import { getCloudinary } from './config/cloudinary.js'
 import authRoutes from './routes/authRoutes.js'
+import flipbookRoutes from './routes/flipbookRoutes.js'
 import { notFound, errorHandler } from './middleware/errorHandler.js'
 
 dotenv.config({ path: fileURLToPath(new URL('.env', import.meta.url)), quiet: true })
@@ -43,6 +45,7 @@ async function connectDB() {
 
 connectDB()
 getFirebaseAuth()
+getCloudinary()
 
 app.get('/', (req, res) => {
   res.json({ success: true, message: 'CraftFlip API is running' })
@@ -54,6 +57,7 @@ app.get('/api/health', (req, res) => {
 })
 
 app.use('/api/auth', authRoutes)
+app.use('/api/flipbooks', flipbookRoutes)
 
 app.use(notFound)
 app.use(errorHandler)
