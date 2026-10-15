@@ -3,6 +3,21 @@ node_modules/
 .env.local
 *.env
 firebase-service-account.json
+
+# Env variants (keep example files trackable)
+.env.*
+!.env.example
+
+# Credentials and private keys
+*service-account*.json
+serviceAccount*.json
+*.pem
+*.key
+
+# Machine-local tool config
+.claude/settings.local.json
+.impeccable/config.local.json
+.impeccable/hook.cache.json
 dist/
 build/
 .DS_Store
