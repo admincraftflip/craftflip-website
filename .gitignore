@@ -1,0 +1,23 @@
+node_modules/
+.env
+.env.local
+*.env
+firebase-service-account.json
+dist/
+build/
+.DS_Store
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
