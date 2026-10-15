@@ -40,7 +40,7 @@ Full details: read PROJECT.md before starting any task.
 
 Frontend: React + Vite, React Router DOM, Tailwind CSS v3, DaisyUI, Firebase SDK, Axios, react-pageflip, Lucide React, React Hot Toast.
 
-Backend: Node.js + Express, MongoDB + Mongoose, Firebase Admin SDK, Multer, Cloudinary SDK, Paddle, Resend, pdf2pic, sharp.
+Backend: Node.js + Express, MongoDB + Mongoose, Firebase Admin SDK, express-rate-limit, Multer, Cloudinary SDK, Paddle, Resend, pdf2pic, sharp.
 
 Hosting: Vercel (frontend), Railway (backend).
 
@@ -103,7 +103,10 @@ PADDLE_API_KEY
 PADDLE_WEBHOOK_SECRET
 RESEND_API_KEY
 CLIENT_URL
+FIREBASE_SERVICE_ACCOUNT_JSON
 ```
+
+FIREBASE_SERVICE_ACCOUNT_JSON holds the Firebase service-account JSON as a single string for deployment (Railway). Leave it empty locally and use backend/firebase-service-account.json instead. Never put a real value in .env.example or any committed file.
 
 Never use variations like MONGO_URI, VITE_API_URL, or VITE_BACKEND_URL.
 Never put secrets into VITE_ variables. They are exposed in the browser bundle.
@@ -152,9 +155,13 @@ Three auth methods via Firebase: Google, Facebook, email/password.
 On every protected backend route:
 1. Extract token from Authorization header: Bearer [token]
 2. Verify with Firebase Admin SDK: admin.auth().verifyIdToken(token)
-3. Look up the User document in MongoDB by firebaseUid
+3. Find the User document in MongoDB by firebaseUid, or create it on first sign-in (upsert on firebaseUid)
 4. Attach MongoDB user document to req.user
 5. Check ownerId on every resource operation
+
+User identity: firebaseUid is the only identity key (required, unique). email is optional and not unique. Never match or merge users by email; there is no account linking in V1 (see REFERENCE.md).
+
+Rate limiting: /api/auth/* routes are rate limited per client IP with express-rate-limit (backend/middleware/rateLimiter.js) and return a structured 429 when over the limit. Express trusts exactly one proxy hop; see REFERENCE.md before changing this.
 
 Firebase credentials on backend:
 - Use firebase-service-account.json for local development

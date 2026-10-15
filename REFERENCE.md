@@ -155,6 +155,42 @@ This separates Firebase identity (firebaseUid) from the application's internal u
 
 ---
 
+## User identity and account linking
+
+Problem: some identity providers do not return an email address (a Facebook account can be registered with a phone number, or the user can decline the email permission). A unique index on email would reject those users, and multiple users without an email would collide on a missing value.
+
+Decision (Milestone 2):
+- firebaseUid is the only identity key: required, unique, indexed
+- email is optional and has no unique index; it is stored when the provider returns it and is used for display and notifications only
+- On each authenticated request the auth middleware finds the User by firebaseUid, or creates it on first sign-in (an upsert on firebaseUid, so concurrent first requests cannot create two documents)
+- Users are never looked up, matched, or merged by email
+- email, displayName and photoURL are refreshed from the verified token claims on each authenticated request; claims the token does not carry are left unchanged. When users can edit their profile in the app, this sync must be revisited so it does not overwrite their edits
+- If Firebase Admin is not configured, protected routes return 503 ("Authentication is temporarily unavailable.") rather than 401, so a server misconfiguration is not reported to the user as a bad session
+
+Account linking: not built in V1. Firebase's default "One account per email address" project setting stays enabled, so Firebase itself refuses to create a second account with an email that already exists under a different sign-in method (error auth/account-exists-with-different-credential). The frontend shows a toast telling the user to sign in with the method they used originally. Linking providers to one account is a future decision and must be recorded here before it is built.
+
+---
+
+## Authentication rate limiting
+
+Requirement: PROJECT.md requires rate limiting on auth endpoints, and it is an acceptance criterion for Milestone 2.
+
+Decision: express-rate-limit (approved by the owner for Milestone 2), in backend/middleware/rateLimiter.js, mounted on the /api/auth router.
+
+Approach:
+- Apply a per-IP rate limiter to all /api/auth/* routes
+- Requests over the limit get HTTP 429 with { "success": false, "message": "Too many requests. Please try again later." }
+- Proposed starting limit: 100 requests per IP per 15-minute window, tuned once real traffic is known
+- Railway runs the app behind a proxy, so Express must trust exactly one proxy hop (app.set('trust proxy', 1)) for the limiter to see the real client IP. Never trust all proxies, which would let clients spoof their IP
+- To verify on first Railway deploy: confirm req.ip is the real client IP (not a Railway proxy address). If Railway adds more than one hop, the trusted hop count must change
+- Local development has no proxy, so a client can set X-Forwarded-For and change the IP the limiter sees. This is harmless locally; it is only safe in production because Railway's proxy appends the real client IP
+- In-memory counters are acceptable while the backend runs as a single Railway instance; a shared store is needed only if it scales to several instances
+- Password guessing for email/password sign-in happens against Firebase, not our backend; Firebase Authentication applies its own abuse protection there. Our limiter protects our own API endpoints
+
+Rate limit headers follow the IETF draft-8 RateLimit / RateLimit-Policy format; the legacy X-RateLimit-* headers are disabled.
+
+---
+
 ## Slug system
 
 Problem: multiple users could create flipbooks with identical titles.
@@ -195,8 +231,8 @@ Important clarifications:
 ## MongoDB indexes to create
 
 Users collection:
-- email: unique
-- firebaseUid: unique
+- firebaseUid: unique (required)
+- email: no unique index (optional field; see "User identity and account linking")
 
 Flipbooks collection:
 - slug: unique
@@ -231,3 +267,4 @@ admin.initializeApp({ credential: admin.credential.cert(serviceAccount) })
 - Whether Ghostscript is available on Railway by default or requires installation step
 - Cloudinary folder structure for organizing user assets
 - Measurement of PDF conversion performance with realistic brochure files
+- Account linking across sign-in methods (not in V1; see "User identity and account linking")

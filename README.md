@@ -5,10 +5,11 @@ Live at: flip.thecraftaxis.com
 
 ---
 
-## Getting started (Milestone 1 only)
+## Getting started
 
-For the first milestone you only need Node.js, Git, and a MongoDB Atlas connection.
-Do not set up Cloudinary, Firebase, Paddle, or Resend yet.
+Milestone 1 (foundation) is complete. The current milestone is Milestone 2 (Firebase Authentication); see PROJECT.md.
+For Milestones 1 and 2 you need Node.js, Git, a MongoDB Atlas connection, and a Firebase project.
+Do not set up Cloudinary, Paddle, or Resend yet.
 Add each service's credentials only when that feature is being built.
 
 ---
@@ -17,13 +18,13 @@ Add each service's credentials only when that feature is being built.
 
 Install these on your computer before anything else.
 
-**Node.js 18 or higher**
-Download from https://nodejs.org (LTS version)
+**Node.js 22.12 or higher**
+Required by firebase-admin 14 (Node 22+), Vite 8 and Mongoose 9. Download from https://nodejs.org (LTS version)
 
 **Git**
 Download from https://git-scm.com
 
-**Ghostscript** (required later for PDF conversion, not needed for Milestone 1)
+**Ghostscript** (required later for PDF conversion in Milestone 4, not needed for Milestones 1–3)
 - Windows: https://ghostscript.com/releases — download and install 64-bit version
 - Mac: `brew install ghostscript`
 - Linux/Railway: install via apt or confirm it is available on your deployment platform
@@ -39,144 +40,51 @@ git --version
 
 ## Milestone 1: Run both servers locally
 
-### Step 1: Create the project folder
+The frontend and backend are already scaffolded in this repository. Dependencies are declared in each `package.json`, so `npm install` is all that is needed. Packages for later milestones (for example `multer`, `cloudinary`) are added in the milestone that needs them, not up front.
+
+### Step 1: Clone the repository
 
 ```bash
-mkdir craftflip
-cd craftflip
+git clone https://github.com/admincraftflip/craftflip-website.git
+cd craftflip-website
 ```
 
-Place PROJECT.md, AGENTS.md, README.md, and REFERENCE.md in this folder.
-
-### Step 2: Set up the frontend
+### Step 2: Run the frontend
 
 ```bash
-mkdir frontend
 cd frontend
-npm create vite@latest . -- --template react
 npm install
-npm install react-router-dom axios firebase react-hot-toast lucide-react react-pageflip
-npm install -D tailwindcss postcss autoprefixer
-npx tailwindcss init -p
-npm install daisyui
-```
-
-Configure Tailwind. Replace `frontend/tailwind.config.js` with:
-```js
-export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [require('daisyui')],
-  daisyui: {
-    themes: ["light", "dark"],
-  },
-}
-```
-
-Replace `frontend/src/index.css` with:
-```css
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-```
-
-Create `frontend/.env` (copy from `frontend/.env.example`, fill in values later):
-```
-VITE_FIREBASE_API_KEY=
-VITE_FIREBASE_AUTH_DOMAIN=
-VITE_FIREBASE_PROJECT_ID=
-VITE_FIREBASE_STORAGE_BUCKET=
-VITE_FIREBASE_MESSAGING_SENDER_ID=
-VITE_FIREBASE_APP_ID=
-VITE_API_BASE_URL=http://localhost:5000
-```
-
-Start the frontend:
-```bash
+cp .env.example .env
 npm run dev
 ```
 
+Tailwind CSS v3 and DaisyUI are already configured in `frontend/tailwind.config.js` and `frontend/postcss.config.js`. The `VITE_FIREBASE_*` values in `frontend/.env` can stay empty until Milestone 2.
+
 Confirm: http://localhost:5173 loads with no errors.
 
-### Step 3: Set up the backend
+### Step 3: Run the backend
 
-Open a new terminal tab:
+Open a new terminal:
 ```bash
-cd ../backend
-npm init -y
-npm install express mongoose dotenv cors multer cloudinary firebase-admin paddle-billing resend pdf2pic sharp
-npm install -D nodemon
+cd backend
+npm install
+cp .env.example .env
 ```
 
-Add to `backend/package.json`:
-```json
-"type": "module",
-"scripts": {
-  "dev": "nodemon server.js",
-  "start": "node server.js"
-}
-```
+Fill in `MONGODB_URI` in `backend/.env`. If the connection string does not name a database, the backend uses the `craftflip` database. Other values can stay empty until their milestone.
 
-Create folder structure:
-```bash
-mkdir controllers middleware models routes utils config
-```
-
-Create `backend/.env` (copy from `backend/.env.example`, fill in MongoDB URI now):
-```
-PORT=5000
-MONGODB_URI=
-CLOUDINARY_CLOUD_NAME=
-CLOUDINARY_API_KEY=
-CLOUDINARY_API_SECRET=
-PADDLE_API_KEY=
-PADDLE_WEBHOOK_SECRET=
-RESEND_API_KEY=
-CLIENT_URL=http://localhost:5173
-```
-
-Create `backend/server.js`:
-```js
-import express from 'express'
-import mongoose from 'mongoose'
-import cors from 'cors'
-import dotenv from 'dotenv'
-
-dotenv.config()
-
-const app = express()
-
-app.use(cors({ origin: process.env.CLIENT_URL }))
-app.use(express.json())
-
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err))
-
-app.get('/', (req, res) => {
-  res.json({ success: true, message: 'CraftFlip API is running' })
-})
-
-const PORT = process.env.PORT || 5000
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
-```
-
-Start the backend:
+Start the backend (uses nodemon):
 ```bash
 npm run dev
 ```
 
 Confirm:
 - Terminal shows: `Server running on port 5000`
-- Terminal shows: `MongoDB connected`
-- http://localhost:5000 returns: `{ "success": true, "message": "CraftFlip API is running" }`
+- Terminal shows: `MongoDB connected (database: craftflip)`
+- http://localhost:5000/ returns: `{ "success": true, "message": "CraftFlip API is running" }`
+- http://localhost:5000/api/health returns: `{ "success": true, "data": { "status": "ok", "database": "connected" } }`
 
-**Milestone 1 is complete when both servers run with no errors and MongoDB connects.**
+**Milestone 1 is complete when both servers run with no errors and /api/health reports the database as connected.**
 
 ---
 
@@ -189,25 +97,31 @@ Confirm:
 - Add your current IP to network access (not "allow from anywhere")
 - Copy connection string into MONGODB_URI in backend/.env
 
-### Milestone 3 (authentication)
+### Milestone 2 (authentication)
 **Firebase** — https://firebase.google.com
-- Create project named craftflip
-- Authentication: enable Google, Facebook, Email/Password
+- Create project named craftflip-website
+- Authentication: enable Google and Email/Password
+- Facebook sign-in is deferred until Meta credentials (app ID and app secret) are available; it is not implemented yet
+- Authentication > Settings > Authorized domains: confirm localhost and add flip.thecraftaxis.com
 - Project Settings > General > add web app > copy firebaseConfig into frontend/.env
 - Project Settings > Service Accounts > generate private key > rename to firebase-service-account.json
 - Place firebase-service-account.json in backend/ folder (never commit this file)
+- For deployment, put the same JSON (as one line) in FIREBASE_SERVICE_ACCOUNT_JSON in the Railway dashboard, never in a committed file
+- The service account must belong to the same Firebase project as the VITE_FIREBASE_* web config, or token verification fails
+- Restart the backend: it logs `Firebase Admin initialized (project: ..., source: ...)`. Without credentials it logs `Firebase Admin not configured` and protected routes return 503
+- Test: register at http://localhost:5173/register; /dashboard should show your account loaded from GET /api/auth/me
 
-### Milestone 4 (file uploads)
+### Milestone 3 (PDF upload)
 **Cloudinary** — https://cloudinary.com
 - Create free account
 - Copy Cloud Name, API Key, API Secret into backend/.env
 
-### Milestone 12 (billing)
+### Milestone 10 (billing)
 **Paddle** — https://paddle.com
 - Confirm account approval for Bangladesh before building payment features
 - Copy API key and webhook secret into backend/.env
 
-### Milestone 13 (emails)
+### Milestone 11 (emails)
 **Resend** — https://resend.com
 - Create free account
 - Copy API key into backend/.env
@@ -238,6 +152,9 @@ PADDLE_API_KEY=
 PADDLE_WEBHOOK_SECRET=
 RESEND_API_KEY=
 CLIENT_URL=http://localhost:5173
+# Firebase Admin credentials for deployment (Railway): paste the full service-account JSON as one line.
+# Leave empty for local development; use backend/firebase-service-account.json instead. Never commit a real value.
+FIREBASE_SERVICE_ACCOUNT_JSON=
 ```
 
 Never commit .env files.

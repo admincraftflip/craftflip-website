@@ -3,12 +3,18 @@ import mongoose from 'mongoose'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
+import { getFirebaseAuth } from './config/firebaseAdmin.js'
+import authRoutes from './routes/authRoutes.js'
+import { notFound, errorHandler } from './middleware/errorHandler.js'
 
 dotenv.config({ path: fileURLToPath(new URL('.env', import.meta.url)), quiet: true })
 
 const DEFAULT_DB_NAME = 'craftflip'
 
 const app = express()
+
+// Railway puts one proxy in front of the app; trust exactly that hop so req.ip is the client IP.
+app.set('trust proxy', 1)
 
 app.use(cors({ origin: process.env.CLIENT_URL }))
 app.use(express.json())
@@ -36,6 +42,7 @@ async function connectDB() {
 }
 
 connectDB()
+getFirebaseAuth()
 
 app.get('/', (req, res) => {
   res.json({ success: true, message: 'CraftFlip API is running' })
@@ -45,6 +52,11 @@ app.get('/api/health', (req, res) => {
   const database = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
   res.json({ success: true, data: { status: 'ok', database } })
 })
+
+app.use('/api/auth', authRoutes)
+
+app.use(notFound)
+app.use(errorHandler)
 
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`))

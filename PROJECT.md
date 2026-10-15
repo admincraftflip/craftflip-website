@@ -13,7 +13,7 @@ CraftFlip is a premium subscription-based flipbook platform built by The CraftAx
 Live URL: flip.thecraftaxis.com
 Product name: CraftFlip
 Owner: Asif, CEO of The CraftAxis, Dhaka, Bangladesh
-Status: Foundation not yet built. Starting fresh October 2026.
+Status: Milestone 1 (project foundation) complete. Milestone 2 (Firebase Authentication) in progress. Started October 2026.
 
 ---
 
@@ -43,25 +43,51 @@ Secondary audience (growth phase):
 
 ## Current milestone
 
-**Milestone 1: Project foundation**
+**Milestone 2: Firebase Authentication**
 
-Status: Not started
+Status: In progress
+
+Goal: Users can sign in with Firebase on the frontend, the backend verifies their Firebase ID token with Firebase Admin SDK, and each authenticated user has a matching User document in MongoDB.
+
+Acceptance criteria ([x] = verified, [ ] = not yet verified, [-] = deferred):
+- [x] Google sign-in works on the frontend (verified October 2026: real Google account signed in, dashboard showed the profile from GET /api/auth/me)
+- [ ] Email/Password sign-in works on the frontend (implemented; not yet tested end to end with a real account)
+- [-] Facebook sign-in: DEFERRED by the owner until Meta credentials (Meta app ID and app secret, configured in the Firebase console) are available. Not implemented in Milestone 2; to be added once the credentials exist
+- [x] The backend verifies Firebase ID tokens using Firebase Admin SDK
+- [x] Authenticated users are created or retrieved in MongoDB (User document keyed by a unique, indexed firebaseUid; email optional; see Authentication model)
+- [x] A protected GET /api/auth/me endpoint returns the authenticated user's profile
+- [x] Protected API requests without a valid token return a structured 401 response: { "success": false, "message": "..." }
+- [x] Axios attaches the current Firebase ID token to authenticated API requests
+- [x] Firebase ID tokens are not manually stored in localStorage
+- [x] Backend auth endpoints (/api/auth/*) are rate limited per client IP; requests over the limit return a structured 429 response: { "success": false, "message": "..." } (approach in REFERENCE.md, "Authentication rate limiting")
+- [ ] No credentials or secrets are committed to Git (verified for the working tree: .env files and the service account key are gitignored and untracked; confirm again when committing)
+
+Environment:
+- Frontend: the six VITE_FIREBASE_* variables (public web config only, no secrets)
+- Backend local development: backend/firebase-service-account.json (gitignored, never committed)
+- Backend deployment (Railway): FIREBASE_SERVICE_ACCOUNT_JSON containing the service-account JSON as a single string
+
+What is NOT part of this milestone:
+- PDF uploads
+- Flipbook viewer
+- Dashboard beyond what is needed to confirm a signed-in user
+- Paddle billing and plan changes (User.plan defaults to free)
+- Welcome email via Resend
+
+---
+
+## Completed milestones
+
+**Milestone 1: Project foundation** — Complete (October 2026)
 
 Goal: Both servers running locally, MongoDB connected, folder structure in place, environment files configured.
 
-Acceptance criteria:
+Acceptance criteria (met):
 - Frontend loads at http://localhost:5173 with no errors
-- Backend responds at http://localhost:5000 with health check JSON
+- Backend responds at http://localhost:5000 with health check JSON (GET /api/health)
 - MongoDB connection confirmed in backend terminal
 - No secrets in any committed file
 - Both .env.example files present with correct variable names
-
-What is NOT part of this milestone:
-- Authentication
-- PDF uploads
-- Flipbook viewer
-- Dashboard
-- Any UI beyond the default Vite React page
 
 ---
 
@@ -175,6 +201,7 @@ Free plan limit behavior: when user hits limit, block upload, show upgrade promp
 - Node.js + Express
 - MongoDB Atlas + Mongoose
 - Firebase Admin SDK (token verification on every protected route)
+- express-rate-limit (rate limiting on auth endpoints)
 - Multer (file uploads)
 - Cloudinary SDK (image storage and delivery)
 - Paddle (subscriptions and billing)
@@ -200,17 +227,19 @@ Backend flow:
 1. Firebase issues ID token after successful sign-in
 2. Frontend sends token in Authorization header: Bearer [token]
 3. Firebase Admin SDK verifies token on every protected route
-4. Middleware attaches decoded user to req.user
+4. Middleware looks up the User document by firebaseUid (creating it on first sign-in) and attaches the MongoDB user document to req.user
 5. Routes check resource ownership before any data operation
 
 User document in MongoDB stores:
-- firebaseUid (unique, indexed) — maps Firebase identity to MongoDB record
-- email
+- firebaseUid (required, unique, indexed) — maps Firebase identity to MongoDB record; the only identity key
+- email (optional, not unique) — some providers, such as Facebook, may not return one
 - displayName
 - photoURL
 - plan (free / starter / pro)
 - paddleCustomerId
 - createdAt, updatedAt
+
+One Firebase user maps to exactly one MongoDB User document, found or created by firebaseUid. Users are never matched or merged by email, and V1 has no account linking. See REFERENCE.md, "User identity and account linking".
 
 Flipbook ownership: flipbook model stores ownerId as a MongoDB ObjectId reference to the User document. Every protected flipbook operation verifies that the authenticated user's MongoDB _id matches the flipbook's ownerId.
 
@@ -334,20 +363,20 @@ Upload failure: user notified with retry option. Flipbook slot not consumed on f
 
 ---
 
-## Build order
+## Roadmap (milestones)
 
-1. Project files and folder structure (current)
-2. Frontend and backend foundation running locally
-3. MongoDB, Cloudinary, Firebase, Resend, Paddle accounts created
-4. Auth working end to end (Google + Facebook + email/password)
-5. PDF upload to Cloudinary working
-6. PDF conversion prototype and validation
-7. Flipbook viewer with Luxury Flip style (first style only)
-8. Remaining three flip styles and visual style picker
-9. Dashboard and flipbook management
-10. Analytics tracking and dashboard
-11. Branding controls, CTA button, embed code
-12. Paddle subscription integration
-13. Email notifications via Resend
-14. OG image generation
-15. Deploy to flip.thecraftaxis.com
+Milestone numbers are the single numbering used across all project documents. Each service account (Firebase, Cloudinary, Paddle, Resend) is created in the milestone that first needs it.
+
+1. Project foundation: folder structure, both servers running locally, MongoDB connected (complete)
+2. Firebase Authentication: Google + email/password (current). Facebook sign-in deferred until Meta credentials are available
+3. PDF upload to Cloudinary working
+4. PDF conversion prototype and validation
+5. Flipbook viewer with Luxury Flip style (first style only)
+6. Remaining three flip styles and visual style picker
+7. Dashboard and flipbook management
+8. Analytics tracking and dashboard
+9. Branding controls, CTA button, embed code
+10. Paddle subscription integration
+11. Email notifications via Resend
+12. OG image generation
+13. Deploy to flip.thecraftaxis.com
