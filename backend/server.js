@@ -5,9 +5,13 @@ import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
 import { getFirebaseAuth } from './config/firebaseAdmin.js'
 import { getCloudinary } from './config/cloudinary.js'
+import { getResendSettings } from './config/resend.js'
 import authRoutes from './routes/authRoutes.js'
 import flipbookRoutes from './routes/flipbookRoutes.js'
+import publicRoutes from './routes/publicRoutes.js'
+import analyticsRoutes from './routes/analyticsRoutes.js'
 import { notFound, errorHandler } from './middleware/errorHandler.js'
+import { recoverInterruptedConversions } from './utils/pdfConversion.js'
 
 dotenv.config({ path: fileURLToPath(new URL('.env', import.meta.url)), quiet: true })
 
@@ -38,6 +42,7 @@ async function connectDB() {
     const options = uriHasDbName(uri) ? {} : { dbName: DEFAULT_DB_NAME }
     await mongoose.connect(uri, options)
     console.log(`MongoDB connected (database: ${mongoose.connection.name})`)
+    await recoverInterruptedConversions()
   } catch (error) {
     console.error(`MongoDB connection error: ${error.name}: ${error.message}`)
   }
@@ -46,6 +51,7 @@ async function connectDB() {
 connectDB()
 getFirebaseAuth()
 getCloudinary()
+getResendSettings()
 
 app.get('/', (req, res) => {
   res.json({ success: true, message: 'CraftFlip API is running' })
@@ -58,6 +64,8 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRoutes)
 app.use('/api/flipbooks', flipbookRoutes)
+app.use('/api/public', publicRoutes)
+app.use('/api/analytics', analyticsRoutes)
 
 app.use(notFound)
 app.use(errorHandler)

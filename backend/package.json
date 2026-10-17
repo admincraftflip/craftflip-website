@@ -12,7 +12,11 @@
   "author": "",
   "license": "ISC",
   "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.11",
     "cloudinary": "^2.11.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.8",
@@ -20,7 +24,9 @@
     "express-rate-limit": "^8.7.1",
     "firebase-admin": "^14.5.0",
     "mongoose": "^9.11.2",
-    "multer": "^2.4.0"
+    "multer": "^2.4.0",
+    "pdfjs-dist": "^6.4.299",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

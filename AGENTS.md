@@ -40,7 +40,7 @@ Full details: read PROJECT.md before starting any task.
 
 Frontend: React + Vite, React Router DOM, Tailwind CSS v3, DaisyUI, Firebase SDK, Axios, react-pageflip, Lucide React, React Hot Toast.
 
-Backend: Node.js + Express, MongoDB + Mongoose, Firebase Admin SDK, express-rate-limit, Multer, Cloudinary SDK, Paddle, Resend, pdf2pic, sharp.
+Backend: Node.js + Express, MongoDB + Mongoose, Firebase Admin SDK, express-rate-limit, Multer, Cloudinary SDK, Paddle, Resend, pdfjs-dist + @napi-rs/canvas + sharp (PDF conversion; replaced pdf2pic, see REFERENCE.md).
 
 Hosting: Vercel (frontend), Railway (backend).
 
@@ -131,6 +131,7 @@ Never put secrets into VITE_ variables. They are exposed in the browser bundle.
 - Enforce file size and page count limits server-side only
 - All secrets via process.env — never hardcode values
 - Always return structured JSON: { success: true, data: {} } or { success: false, message: "" }
+- Public (no sign-in) endpoints live only under /api/public (routes/publicRoutes.js). Every public query requires isPublished true and status ready, and public responses are built field by field: never Cloudinary IDs or URLs, owner details, or internal IDs (see REFERENCE.md, Publishing and public sharing)
 
 ### Frontend
 - Do NOT manually store Firebase ID tokens in localStorage or sessionStorage
@@ -180,6 +181,8 @@ Firebase credentials on backend:
 - On conversion failure: return clear error to user, do not consume their flipbook slot
 - Never store the original PDF in MongoDB
 - Never expose raw Cloudinary URLs as the only access control for private content
+- Original PDFs leave the server only through the owner's /api/flipbooks/:id/original or the public /api/public/flipbooks/:slug/download, which requires published, Ready and reader.allowDownload in the same query (Milestone 9)
+- Logos (2 MB) and reader background images (8 MB) are PNG, JPEG or WebP checked by their bytes and re-encoded with sharp; never accept SVG or remote image URLs. Both are private files in the flipbook's branding folder, served only through the API
 
 ---
 
@@ -191,13 +194,14 @@ Firebase credentials on backend:
 - Editable before first publish without warning
 - Editable after first publish only with explicit warning returned from API
 - Title changes never automatically change slug after first publish
+- A slug that has ever been published is retired permanently (PublishedSlug registry) and never given to another flipbook, even after deletion
 
 ---
 
 ## Subscription and plan rules
 
 - Plan status always checked from MongoDB, never from frontend
-- Free plan: maximum 3 flipbooks live — check before processing upload
+- Free plan: maximum 3 flipbooks published at a time — checked at publish, under the per-user publish lock (Milestone 6); uploads are not limited by it
 - At limit: return 403 with clear error, frontend shows upgrade modal
 - Never silently delete content
 - Paddle webhooks verified by signature before any plan update is processed
@@ -207,12 +211,26 @@ Firebase credentials on backend:
 
 ## Analytics rules
 
-- Track viewer sessions in MongoDB analytics collection
-- Use a first-party session identifier (not browser fingerprinting)
-- Collect: country from IP (country level only), device type from user agent, referrer from HTTP header
+- Track viewer sessions in MongoDB (ViewSession, one document per reading session, updated in place; never one record per page turn)
+- Use a first-party session identifier (not browser fingerprinting): a random visitor ID in localStorage plus a 30-minute session rule (REFERENCE.md, Analytics)
+- Collect: device type from user agent (the user agent itself is not stored), referrer host only (never the path or query), pages shown. Country is in the data model but not collected: it may only come from a documented country header set by trusted hosting or proxy infrastructure, and the current deployment (browser straight to Railway) has none (REFERENCE.md, Analytics, Visitor country). Never read a country header a client could send, never use a stored IP address, and do not add a GeoIP package, geolocation API or proxy without approval
+- Never store IP addresses, full user agents, full referrer URLs or cookies for analytics
+- Activity is accepted only through /api/public/flipbooks/:slug/activity, for published, Ready flipbooks, validated and rate limited; tracking must never delay or break reading
+- Owner previews never report; respect Global Privacy Control and Do Not Track
 - Do not collect personally identifiable information from viewers
 - Do not add third-party analytics scripts to the viewer page
-- Analytics only visible to flipbook owner in their dashboard
+- Analytics only visible to flipbook owner in their dashboard: report queries always filter by req.user._id, and responses contain counts only
+
+---
+
+## Email rules (Milestone 12)
+
+- Emails are sent only from the backend through sendEmail in backend/utils/email.js (Resend REST API); templates live in backend/utils/emailTemplates.js. Never call Resend from the frontend
+- sendEmail never throws; an email failure must never fail or delay the request that triggered it (send without awaiting where a user is waiting)
+- Never log the API key, recipient addresses, subjects or email content
+- Every email that could be triggered twice uses an idempotency key and a stored state (see the welcome email in backend/utils/welcomeEmail.js)
+- Billing emails (upgrade confirmation, payment failed) are sent only from the verified Paddle webhook handler (Milestone 11), never from frontend data
+- Tests mock Resend; no test may need a Resend account or send real email
 
 ---
 
@@ -245,6 +263,8 @@ Do not add any of these in V1:
 - Lead capture forms (V2)
 - Sound effects (proposed, not confirmed)
 - Auto theme detection from PDF colors (V2)
+
+PROJECT.md, "Product Decisions for the Future UI/UX Pass": the reader background, floating CTA and regrouped Customize dialog were implemented in October 2026 (Milestone 9 follow-up). What it leaves for the UI/UX pass (curated background collection, the button's final look and dismissibility, the visual review) is not to be built until that pass is scheduled. Background presets need a verified free-to-use licence recorded in frontend/public/reader-backgrounds/CREDITS.md; no third-party image API.
 
 ---
 

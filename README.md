@@ -7,9 +7,9 @@ Live at: flip.thecraftaxis.com
 
 ## Getting started
 
-Milestone 1 (foundation) is complete. The current milestone is Milestone 2 (Firebase Authentication); see PROJECT.md.
-For Milestones 1 and 2 you need Node.js, Git, a MongoDB Atlas connection, and a Firebase project.
-Do not set up Cloudinary, Paddle, or Resend yet.
+Milestones 1 and 3 are complete, Milestone 2 is committed, and Milestones 4 (PDF conversion), 5 (first flipbook viewer), 6 (publishing and public sharing), 7 (four flip styles), 8 (dashboard and flipbook management), 9 (branding, call to action, downloads, embed), 10 (analytics) and 12 (transactional email) are implemented with owner checks pending; Milestone 11 (billing) is postponed. See PROJECT.md for the exact status.
+To run what exists now you need Node.js, Git, a MongoDB Atlas connection, a Firebase project and a Cloudinary account. Resend is optional locally: without a key, emails are skipped and logged.
+Do not set up Paddle yet.
 Add each service's credentials only when that feature is being built.
 
 ---
@@ -18,16 +18,13 @@ Add each service's credentials only when that feature is being built.
 
 Install these on your computer before anything else.
 
-**Node.js 22.12 or higher**
-Required by firebase-admin 14 (Node 22+), Vite 8 and Mongoose 9. Download from https://nodejs.org (LTS version)
+**Node.js 22.13 or higher**
+Required by firebase-admin 14 (Node 22+), Vite 8, Mongoose 9 and pdfjs-dist 6 (PDF conversion, Node 22.13+). Download from https://nodejs.org (LTS version)
 
 **Git**
 Download from https://git-scm.com
 
-**Ghostscript** (required later for PDF conversion in Milestone 4, not needed for Milestones 1–3)
-- Windows: https://ghostscript.com/releases — download and install 64-bit version
-- Mac: `brew install ghostscript`
-- Linux/Railway: install via apt or confirm it is available on your deployment platform
+PDF conversion (Milestone 4) needs no system programs: pdfjs-dist, @napi-rs/canvas and sharp install with `npm install` and ship prebuilt binaries for Windows, macOS and Linux (Railway).
 
 Confirm installations:
 ```bash
@@ -90,7 +87,7 @@ Confirm:
 
 ```bash
 cd backend && npm test              # backend tests (Node's built-in test runner; no services needed)
-cd frontend && npm run lint && npm run build
+cd frontend && npm test && npm run lint && npm run build   # frontend tests: viewer layout rules (Node's built-in test runner)
 ```
 
 ---
@@ -126,15 +123,72 @@ cd frontend && npm run lint && npm run build
 - Test: sign in, upload a PDF on /dashboard, and confirm it appears in the list with status Uploaded and in the Cloudinary Media Library under craftflip/users/
 - The Cloudinary Free plan accepts files up to 10 MB only; larger PDFs are refused with a 413 until the plan allows larger files
 
-### Milestone 10 (billing)
+### Milestone 4 (PDF conversion)
+No new accounts or environment variables. After `npm install` in backend/:
+- While a PDF converts, its row shows the stage, a progress bar with the percentage, and how many pages are done; the page can be closed and reopened
+- Upload a PDF on /dashboard. Conversion starts on the server with the upload: the status goes Processing, then Ready with the page count (or Failed with a reason and a Retry button)
+- Page images appear in the Cloudinary Media Library under craftflip/users/<user>/flipbooks/<flipbook>/pages/ as private (authenticated) WebP images
+
+### Milestone 5 (flipbook viewer)
+No new accounts or environment variables.
+- On /dashboard, a Ready flipbook has an Open button. It opens /flipbooks/<id>: the converted pages as a flipbook (Previous/Next buttons, arrow keys, or drag a page corner)
+- Page images come through the backend (GET /api/flipbooks/:id/pages/:pageNumber/image); the browser never loads them from Cloudinary directly
+- To check on a phone, open the Vite dev server from the phone on the same network (npm run dev -- --host) with VITE_API_BASE_URL and CLIENT_URL pointing at the PC's LAN address, and add that address to Firebase Authorized domains; or check after the first deploy
+
+### Milestone 6 (publishing and public sharing)
+No new accounts, packages or environment variables. MongoDB gets a new collection, publishedslugs, created automatically.
+- On /dashboard, a Ready row shows Publish. Once published it shows the link (/view/<slug>), Copy link and Unpublish. Free plan: 3 published at a time ("N of 3 published")
+- Anyone can open http://localhost:5173/view/<slug> without signing in while the flipbook is published. Unpublishing or deleting it makes the link show "This flipbook doesn't exist or has been removed."
+- To check: publish a flipbook, copy the link, open it in a private window, flip pages, unpublish, reload the link
+- Deployment: frontend/vercel.json rewrites every path to index.html (so /view/*, /dashboard and /flipbooks/* load on refresh) and sends X-Robots-Tag noindex for /view/*. Check both after the first Vercel deploy
+
+### Milestone 7 (flip styles)
+No new accounts, packages or environment variables.
+- Open a Ready flipbook from /dashboard. Above the viewer, choose Luxury Flip, Clean Swipe, Classic Book or Editorial: the viewer switches at once and the choice is saved for that flipbook
+- The public link (/view/<slug>) opens in the saved style; no republishing is needed. Existing flipbooks use Luxury Flip until changed
+
+### Milestone 9 (branding, call to action, downloads, embed)
+No new accounts, packages or environment variables.
+- Open a Ready flipbook and choose Customize (or the sliders icon on its dashboard row). Appearance: upload a logo (PNG, JPEG or WebP, up to 2 MB), choose the reader background (default, a colour, one of four temporary preset images, or your own PNG, JPEG or WebP up to 8 MB; images are softened behind the pages) and the button colour. The viewing style is chosen in the bar at the top of the preview. Actions: the call-to-action button, which floats at the bottom right of the reader. Reader settings: allow or block PDF downloads, and copy the embed code once the flipbook is published
+- The preset images are CC0 placeholders in frontend/public/reader-backgrounds (sources in CREDITS.md there); they are bundled with the frontend, so nothing needs configuring
+- The public link and the embed (/embed/<slug>) show the saved settings. Embeds work only while the flipbook is published
+- Embedding on other sites needs the Vercel headers in frontend/vercel.json (only /embed/* may be framed); check them after deployment
+
+### Milestone 8 (dashboard and flipbook management)
+No new accounts, packages or environment variables.
+- Each row: Open, the pencil (edit title and public link), the style name (opens the preview to change it), Publish/Unpublish, Copy link, Convert/Retry, Delete
+- Changing the link of a flipbook that has been published needs a confirmation: the old link stops working for good and is never reused
+- If the list or account cannot load, use Try again instead of reloading the page
+
+### Milestone 8, first part (flipbook deletion)
+No new accounts or environment variables.
+- On /dashboard, each row has a Delete (bin) button. Confirm in the dialog; the row disappears and the flipbook's original PDF and page images are removed from Cloudinary
+- Deleting is disabled while a PDF is converting. If Cloudinary cleanup fails, the row stays as "Not fully deleted"; delete it again to retry
+- To check: upload a throwaway PDF, wait for Ready, delete it, then confirm its folder under craftflip/users/ in the Cloudinary Media Library has no files (an empty folder may remain)
+
+### Milestone 10 (analytics)
+No new accounts, packages or environment variables. MongoDB creates the viewsessions collection and its indexes on the first recorded visit.
+- The dashboard's Analytics section shows views, unique visitors, pages per view, views over time, devices, sources and each flipbook's figures for 7, 30 or 90 days or all time
+- Visits are counted from public links and embeds only. To see your own test visits counted, use a browser where you have not opened the dashboard (your own browser is left out on purpose)
+- Country is not collected: the deployment has no trusted country header (see REFERENCE.md, Analytics, Visitor country)
+
+### Milestone 11 (billing, postponed)
 **Paddle** — https://paddle.com
+- Postponed: Paddle account setup is blocked. Not built yet
 - Confirm account approval for Bangladesh before building payment features
 - Copy API key and webhook secret into backend/.env
 
-### Milestone 11 (emails)
-**Resend** — https://resend.com
-- Create free account
-- Copy API key into backend/.env
+### Milestone 12 (emails)
+No new packages. Without a key everything works and emails are skipped (the backend logs `Resend not configured: missing RESEND_API_KEY (emails are skipped)`). Tests never need Resend.
+
+**Resend** — https://resend.com (only needed to actually deliver email)
+- Create a free account
+- Domains > Add domain: flip.thecraftaxis.com (the sender is `CraftFlip <hello@flip.thecraftaxis.com>`, set in backend/config/resend.js). Add the DNS records Resend shows at the domain's DNS provider and wait until the domain is Verified. Until then Resend refuses to send (logged as `HTTP 403 validation_error`)
+- API Keys > Create API key with "Sending access" only. Put it in backend/.env as RESEND_API_KEY (and later in the Railway variables). Never commit it; never put it in a VITE_ variable
+- Restart the backend: it logs `Resend configured`
+- Test: sign up with a new account (a new Google account or a new email/password). The backend logs `Email sent (template: welcome, id: ...)` and the welcome email arrives; signing in again sends nothing. Accounts that existed before Milestone 12 never get a welcome email
+- The upgrade confirmation and payment failure emails are prepared but sent by nothing until billing (Milestone 11)
+- If delivery fails the backend logs `Email delivery failed (template: welcome): HTTP <status> <name>: <Resend's message>` (addresses, the subject and the key are replaced by `[address]`/`[redacted]`). Common 403s: `validation_error: The flip.thecraftaxis.com domain is not verified` (verify exactly that domain in Resend), `validation_error: You can only send testing emails to your own email address` (no verified domain on this account), `restricted_api_key` (key not active), and `cloudflare_1010` (blocked before Resend, usually the User-Agent header)
 
 ---
 

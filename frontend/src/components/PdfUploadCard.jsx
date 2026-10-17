@@ -100,7 +100,7 @@ export default function PdfUploadCard({ onUploaded }) {
           <div className="flex flex-col gap-1" role="status">
             <progress className="progress progress-primary w-full" value={progress} max="100"></progress>
             <span className="text-xs text-base-content/60">
-              {progress < 100 ? `Uploading… ${progress}%` : 'Saving your PDF…'}
+              {progress < 100 ? `Uploading original PDF… ${progress}%` : 'Storing your PDF securely…'}
             </span>
           </div>
         )}

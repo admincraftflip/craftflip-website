@@ -25,6 +25,19 @@ function randomSuffix() {
   return suffix
 }
 
+export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+export const MIN_SLUG_LENGTH = 3
+export const MAX_SLUG_LENGTH = 80
+
+// An owner-chosen slug: trimmed and lowercased, then it must be words of a-z and 0-9 joined by
+// single hyphens, 3-80 characters. Returns null if it is not acceptable.
+export function normalizeSlugInput(value) {
+  if (typeof value !== 'string') return null
+  const slug = value.trim().toLowerCase()
+  if (slug.length < MIN_SLUG_LENGTH || slug.length > MAX_SLUG_LENGTH || !SLUG_PATTERN.test(slug)) return null
+  return slug
+}
+
 // "Boutique Home Group Florida" -> "boutique-home-group-florida-x7k2"
 export function generateSlug(title) {
   return `${slugifyTitle(title)}-${randomSuffix()}`

@@ -1,33 +1,50 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
-import { AuthProvider } from './context/AuthProvider'
-import ProtectedRoute from './components/ProtectedRoute'
-import PublicOnlyRoute from './components/PublicOnlyRoute'
-import HomePage from './pages/HomePage'
-import LoginPage from './pages/LoginPage'
-import RegisterPage from './pages/RegisterPage'
-import DashboardPage from './pages/DashboardPage'
+import AuthLoading from './components/AuthLoading'
+
+// Two separately loaded parts: the public viewer (no sign-in, no Firebase) and everything else.
+const PublicViewerPage = lazy(() => import('./pages/PublicViewerPage'))
+const AuthenticatedApp = lazy(() => import('./AuthenticatedApp'))
+
+function PublicLoading() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-stone-100" role="status">
+      <span className="loading loading-dots loading-md text-stone-400" aria-label="Loading flipbook"></span>
+    </div>
+  )
+}
 
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-
-          <Route element={<PublicOnlyRoute />}>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-          </Route>
-
-          <Route element={<ProtectedRoute />}>
-            <Route path="/dashboard" element={<DashboardPage />} />
-          </Route>
-
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-        <Toaster position="top-center" />
-      </AuthProvider>
+      <Routes>
+        <Route
+          path="/view/:slug"
+          element={
+            <Suspense fallback={<PublicLoading />}>
+              <PublicViewerPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/embed/:slug"
+          element={
+            <Suspense fallback={<PublicLoading />}>
+              <PublicViewerPage embed />
+            </Suspense>
+          }
+        />
+        <Route
+          path="*"
+          element={
+            <Suspense fallback={<AuthLoading />}>
+              <AuthenticatedApp />
+            </Suspense>
+          }
+        />
+      </Routes>
+      <Toaster position="top-center" />
     </BrowserRouter>
   )
 }

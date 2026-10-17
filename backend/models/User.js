@@ -10,6 +10,21 @@ const userSchema = new mongoose.Schema(
     photoURL: { type: String, default: null },
     plan: { type: String, enum: ['free', 'starter', 'pro'], default: 'free' },
     paddleCustomerId: { type: String, default: null },
+    // Short lease that serialises this user's publish requests, so the plan's limit on published
+    // flipbooks cannot be exceeded by simultaneous requests. Never sent to the client.
+    publishLock: {
+      token: { type: String, default: null },
+      expiresAt: { type: Date, default: null },
+    },
+    // Welcome email state (utils/welcomeEmail.js). status is set to pending only when the account
+    // is created, so accounts from before Milestone 12 (status null) never receive one. Never sent
+    // to the client.
+    welcomeEmail: {
+      status: { type: String, enum: ['pending', 'sending', 'sent', 'skipped', 'failed'], default: null },
+      attempts: { type: Number, default: 0 },
+      nextAttemptAt: { type: Date, default: null },
+      sentAt: { type: Date, default: null },
+    },
   },
   { timestamps: true }
 )

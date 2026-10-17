@@ -1,5 +1,6 @@
 import { getFirebaseAuth } from '../config/firebaseAdmin.js'
 import User from '../models/User.js'
+import { scheduleWelcomeEmail } from '../utils/welcomeEmail.js'
 
 const DUPLICATE_KEY_ERROR = 11000
 
@@ -20,7 +21,11 @@ function profileFromToken(decodedToken) {
 
 async function findOrCreateUser(decodedToken) {
   const filter = { firebaseUid: decodedToken.uid }
-  const update = { $set: profileFromToken(decodedToken), $setOnInsert: { firebaseUid: decodedToken.uid } }
+  // A new account starts with a pending welcome email; existing accounts are never touched by it.
+  const update = {
+    $set: profileFromToken(decodedToken),
+    $setOnInsert: { firebaseUid: decodedToken.uid, 'welcomeEmail.status': 'pending' },
+  }
   const options = { upsert: true, returnDocument: 'after', runValidators: true, setDefaultsOnInsert: true }
 
   try {
@@ -55,9 +60,12 @@ export async function requireAuth(req, res, next) {
 
   try {
     req.user = await findOrCreateUser(decodedToken)
-    next()
   } catch (error) {
     console.error(`Auth user lookup failed: ${error.name}`)
-    res.status(500).json({ success: false, message: 'Something went wrong. Please try again.' })
+    return res.status(500).json({ success: false, message: 'Something went wrong. Please try again.' })
   }
+
+  // Not awaited and never throws: email problems cannot delay or fail sign-in.
+  scheduleWelcomeEmail(req.user)
+  next()
 }
