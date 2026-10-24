@@ -7,7 +7,7 @@ Live at: flip.thecraftaxis.com
 
 ## Getting started
 
-Milestones 1 and 3 are complete, Milestone 2 is committed, and Milestones 4 (PDF conversion), 5 (first flipbook viewer), 6 (publishing and public sharing), 7 (four flip styles), 8 (dashboard and flipbook management), 9 (branding, call to action, downloads, embed), 10 (analytics) and 12 (transactional email) are implemented with owner checks pending; Milestone 11 (billing) is postponed. See PROJECT.md for the exact status.
+Milestones 1 and 3 are complete, Milestone 2 is committed, and Milestones 4 (PDF conversion), 5 (first flipbook viewer), 6 (publishing and public sharing), 7 (four flip styles), 8 (dashboard and flipbook management), 9 (branding, call to action, downloads, embed), 10 (analytics), 12 (transactional email) and 13 (social preview images) are implemented with owner checks pending; Milestone 11 (billing) is postponed. See PROJECT.md for the exact status.
 To run what exists now you need Node.js, Git, a MongoDB Atlas connection, a Firebase project and a Cloudinary account. Resend is optional locally: without a key, emails are skipped and logged.
 Do not set up Paddle yet.
 Add each service's credentials only when that feature is being built.
@@ -87,8 +87,10 @@ Confirm:
 
 ```bash
 cd backend && npm test              # backend tests (Node's built-in test runner; no services needed)
-cd frontend && npm test && npm run lint && npm run build   # frontend tests: viewer layout rules (Node's built-in test runner)
+cd frontend && npm test && npm run lint && npm run build   # frontend tests (Node's built-in test runner), including the link preview function and vercel.json rule
 ```
+
+Expected as of October 25, 2026: backend 249 passing, frontend 105 passing, lint and build without errors. If backend HTTP tests fail at random with "fetch failed", see REFERENCE.md, "Social previews (Milestone 13)", Test setup: the test server helper skips ports fetch refuses, and the 50 MB rejection test uses its own server.
 
 ---
 
@@ -189,6 +191,26 @@ No new packages. Without a key everything works and emails are skipped (the back
 - Test: sign up with a new account (a new Google account or a new email/password). The backend logs `Email sent (template: welcome, id: ...)` and the welcome email arrives; signing in again sends nothing. Accounts that existed before Milestone 12 never get a welcome email
 - The upgrade confirmation and payment failure emails are prepared but sent by nothing until billing (Milestone 11)
 - If delivery fails the backend logs `Email delivery failed (template: welcome): HTTP <status> <name>: <Resend's message>` (addresses, the subject and the key are replaced by `[address]`/`[redacted]`). Common 403s: `validation_error: The flip.thecraftaxis.com domain is not verified` (verify exactly that domain in Resend), `validation_error: You can only send testing emails to your own email address` (no verified domain on this account), `restricted_api_key` (key not active), and `cloudflare_1010` (blocked before Resend, usually the User-Agent header)
+
+### Milestone 13 (social preview images)
+Status: the local implementation and automated checks are complete (backend 249, frontend 105 passing, lint and build pass). Not yet verified: a real preview image generated and stored in Cloudinary, the Vercel rewrite and function on a live deployment, and real previews in Facebook, LinkedIn, WhatsApp and X. The steps below cover them.
+
+No new accounts, packages or environment variables. The Vercel function reads the existing VITE_API_BASE_URL, which must be set for the Production environment in Vercel (it already is, for the build).
+- A converted flipbook gets a 1200x630 preview image of its first page a moment after it becomes Ready. Older flipbooks get one when published or when their public link is first opened
+- The image is in the Cloudinary Media Library under craftflip/users/<user>/flipbooks/<flipbook>/social/ as a private (authenticated) image
+- Check the image locally: publish a flipbook, open its public link once, wait a few seconds, then open http://localhost:5000/api/public/flipbooks/<slug>/social-image in the browser
+- Check the tags locally (no Vercel needed), with the backend running:
+  ```bash
+  cd frontend
+  npm run build
+  npm run preview:social
+  # in another terminal (Git Bash; in PowerShell use curl.exe):
+  curl -A "facebookexternalhit/1.1" http://localhost:4173/view/<slug>
+  ```
+  The output contains og:title, og:image and twitter:card for the flipbook; the og:image address opens the image. Without the -A option (or in a browser) the normal app is returned. Unpublish the flipbook and repeat: 404 and only the generic CraftFlip tags. Locally the addresses are http; on Vercel they are https
+- Deploy the backend (Railway) before or together with the frontend: until the backend has the image route, links get the small card without an image (safe, just plainer)
+- First check after deployment: `curl -A "facebookexternalhit/1.1" https://flip.thecraftaxis.com/view/<published slug>` must show og:title and og:image for that flipbook, and the og:image address must open the image. If only the generic CraftFlip tags appear, check in Vercel that VITE_API_BASE_URL is set for the Production environment (the function reads it at runtime) and look at the api/view function's logs; `curl` without -A must still return the normal app
+- After deployment: paste a published link into https://developers.facebook.com/tools/debug/ and https://www.linkedin.com/post-inspector/, and send it in a WhatsApp chat. Apps cache previews; the Facebook and LinkedIn tools refresh them
 
 ---
 

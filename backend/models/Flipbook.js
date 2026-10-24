@@ -47,6 +47,21 @@ const backgroundImageSchema = new mongoose.Schema(
   { _id: false }
 )
 
+// The social preview image (Milestone 13): a 1200x630 JPEG made from the first page, stored as a
+// private Cloudinary image under the flipbook's social folder. Never sent to the client as stored.
+const socialImageSchema = new mongoose.Schema(
+  {
+    publicId: { type: String, required: true },
+    version: { type: Number, required: true },
+    format: { type: String, required: true },
+    width: { type: Number, required: true },
+    height: { type: Number, required: true },
+    bytes: { type: Number, required: true },
+    createdAt: { type: Date, required: true },
+  },
+  { _id: false }
+)
+
 const HEX_COLOR = /^#[0-9a-f]{6}$/
 
 const flipbookSchema = new mongoose.Schema(
@@ -96,6 +111,14 @@ const flipbookSchema = new mongoose.Schema(
         url: { type: String, default: '', maxlength: 2048 },
       },
       allowDownload: { type: Boolean, default: false },
+    },
+    // Made once per converted flipbook (utils/socialImage.js); null until then or when it could not
+    // be made. socialImageGeneration claims the work (lease) and caps the attempts. Records from
+    // before Milestone 13 have neither field and get an image the first time one is requested.
+    socialImage: { type: socialImageSchema, default: null },
+    socialImageGeneration: {
+      attempts: { type: Number, default: 0 },
+      leaseExpiresAt: { type: Date, default: null },
     },
     publishedAt: { type: Date, default: null },
     firstPublishedAt: { type: Date, default: null },

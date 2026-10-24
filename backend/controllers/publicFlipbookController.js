@@ -9,6 +9,7 @@ import { resolveViewerStyle } from '../utils/viewerStyles.js'
 import { MAX_SLUG_LENGTH, SLUG_PATTERN } from '../utils/slug.js'
 import ViewSession from '../models/ViewSession.js'
 import { deviceTypeFrom, isLikelyBot, parseActivity, sessionUpsert } from '../utils/analytics.js'
+import { ensureSocialImage, needsSocialImage } from '../utils/socialImage.js'
 
 // Slugs are lowercase words and digits joined by hyphens (utils/slug.js).
 // Browsers may keep a page image for five minutes; "private" forbids shared caches and CDNs.
@@ -37,8 +38,13 @@ export async function getPublicFlipbook(req, res) {
   const { slug } = req.params
   if (!isValidSlug(slug)) return res.status(404).json(NOT_FOUND)
 
-  const flipbook = await Flipbook.findOne(publishedFilter(slug)).select('slug title viewerStyle reader pageCount pages.pageNumber pages.width pages.height')
+  const flipbook = await Flipbook.findOne(publishedFilter(slug)).select(
+    'slug title viewerStyle reader pageCount pages.pageNumber pages.width pages.height socialImage socialImageGeneration'
+  )
   if (!flipbook) return res.status(404).json(NOT_FOUND)
+  // A published flipbook without a social preview image (converted before Milestone 13, or an
+  // earlier attempt failed) gets one in the background; this response goes out without it.
+  if (needsSocialImage(flipbook)) ensureSocialImage(flipbook._id)
 
   const pages = flipbook.pages
     .map(({ pageNumber, width, height }) => ({ pageNumber, width, height }))
@@ -50,8 +56,35 @@ export async function getPublicFlipbook(req, res) {
     reader: publicReaderView(flipbook.reader),
     pageCount: pages.length,
     pages,
+    socialImage: publicSocialImageView(flipbook.socialImage),
   }
   res.json({ success: true, data: { flipbook: publicFlipbook } })
+}
+
+// Link previews (Milestone 13) need only the size and a revision for the image address.
+function publicSocialImageView(socialImage) {
+  if (!socialImage?.publicId) return null
+  return { width: socialImage.width, height: socialImage.height, revision: new Date(socialImage.createdAt).getTime() }
+}
+
+// The social preview image (Milestone 13) of a published flipbook, for link preview crawlers.
+// Checked on every request like pages; the stored image stays private in Cloudinary.
+export async function getPublicSocialImage(req, res) {
+  const { slug } = req.params
+  if (!isValidSlug(slug)) return res.status(404).json(NOT_FOUND)
+  if (!getCloudinary()) return res.status(503).json({ success: false, message: 'Images are temporarily unavailable. Please try again later.' })
+  const flipbook = await Flipbook.findOne(publishedFilter(slug)).select('socialImage')
+  const image = flipbook?.socialImage
+  if (!image?.publicId) return res.status(404).json(NOT_FOUND)
+  let opened
+  try {
+    opened = await openPageImageStream(image)
+  } catch (error) {
+    console.error(`Public social image failed: ${error.message}`)
+    return res.status(502).json({ success: false, message: "We couldn't load the preview image. Please try again." })
+  }
+  res.set({ 'Content-Type': 'image/jpeg', 'Cache-Control': PAGE_IMAGE_CACHE_CONTROL })
+  await pipeTo(res, opened)
 }
 
 // Streams one page of a published flipbook. Publication is checked on every request, so the

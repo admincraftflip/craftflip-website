@@ -28,6 +28,9 @@ mock.module(moduleUrl('../utils/pdfStorage.js'), {
   },
 })
 
+const ensureSocialImage = mock.fn(async () => 'created')
+mock.module(moduleUrl('../utils/socialImage.js'), { namedExports: { ensureSocialImage } })
+
 const { default: flipbookRoutes } = await import('../routes/flipbookRoutes.js')
 
 const app = express()

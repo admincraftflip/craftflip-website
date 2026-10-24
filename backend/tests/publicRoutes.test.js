@@ -54,6 +54,14 @@ mock.module(moduleUrl('../utils/pdfStorage.js'), {
   },
 })
 
+const socialImage = { ensureSocialImage: mock.fn(async () => 'created') }
+mock.module(moduleUrl('../utils/socialImage.js'), {
+  namedExports: {
+    ensureSocialImage: (...args) => socialImage.ensureSocialImage(...args),
+    needsSocialImage: (flipbook) => !flipbook.socialImage?.publicId && (flipbook.socialImageGeneration?.attempts ?? 0) < 3 && !(flipbook.socialImageGeneration?.leaseExpiresAt > new Date()),
+  },
+})
+
 const { default: publicRoutes } = await import('../routes/publicRoutes.js')
 const { errorHandler } = await import('../middleware/errorHandler.js')
 
@@ -81,6 +89,7 @@ beforeEach(() => {
   storage.openPageImageStream.mock.resetCalls()
   storage.openOriginalPdfStream.mock.resetCalls()
   viewSessionModel.findOneAndUpdate.mock.resetCalls()
+  socialImage.ensureSocialImage.mock.resetCalls()
 })
 
 test('a published flipbook returns only title, slug, viewing style, reader settings, page count and ordered page sizes, without sign-in', async () => {
@@ -101,6 +110,7 @@ test('a published flipbook returns only title, slug, viewing style, reader setti
           { pageNumber: 1, width: 1600, height: 2071 },
           { pageNumber: 2, width: 1600, height: 2071 },
         ],
+        socialImage: null,
       },
     },
   })
@@ -328,6 +338,103 @@ test('an uploaded background is served only while published and chosen; otherwis
   }
   assert.equal(storage.openPageImageStream.mock.callCount(), 1)
 })
+
+// ---------- Social preview image (Milestone 13) ----------
+
+const SOCIAL_IMAGE = {
+  publicId: 'craftflip/users/u/flipbooks/f/social/og-1',
+  version: 4,
+  format: 'jpg',
+  width: 1200,
+  height: 630,
+  bytes: 48211,
+  createdAt: new Date('2026-10-18T09:00:00.000Z'),
+}
+const socialImageUrl = (slug = STORED.slug) => `${server.url}/api/public/flipbooks/${slug}/social-image`
+
+test('the metadata names the social preview image by size and revision only, and starts nothing when it exists', async () => {
+  state.flipbook = { ...structuredClone(STORED), socialImage: SOCIAL_IMAGE }
+  const response = await metadataRequest(STORED.slug)
+  const text = await response.text()
+  assert.doesNotMatch(text, FORBIDDEN)
+  assert.doesNotMatch(text, /social\/og|jpg|bytes/)
+  assert.deepEqual(JSON.parse(text).data.flipbook.socialImage, { width: 1200, height: 630, revision: SOCIAL_IMAGE.createdAt.getTime() })
+  assert.equal(socialImage.ensureSocialImage.mock.callCount(), 0)
+})
+
+test('a published flipbook without a social preview image reports null and gets one in the background', async () => {
+  socialImage.ensureSocialImage.mock.mockImplementationOnce(() => new Promise(() => {}))
+  const response = await metadataRequest(STORED.slug)
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).data.flipbook.socialImage, null)
+  assert.equal(socialImage.ensureSocialImage.mock.callCount(), 1)
+  assert.equal(socialImage.ensureSocialImage.mock.calls[0].arguments[0], STORED._id)
+
+  // Out of attempts, or another request is making it: no new attempt.
+  for (const socialImageGeneration of [{ attempts: 3, leaseExpiresAt: null }, { attempts: 1, leaseExpiresAt: new Date(Date.now() + 60_000) }]) {
+    state.flipbook = { ...structuredClone(STORED), socialImageGeneration }
+    assert.equal((await (await metadataRequest(STORED.slug)).json()).data.flipbook.socialImage, null)
+  }
+  assert.equal(socialImage.ensureSocialImage.mock.callCount(), 1)
+
+  // Unpublished: the usual 404 and nothing started.
+  state.flipbook = { ...structuredClone(STORED), isPublished: false }
+  assert.equal((await metadataRequest(STORED.slug)).status, 404)
+  assert.equal(socialImage.ensureSocialImage.mock.callCount(), 1)
+})
+
+test('the social preview image of a published flipbook is streamed as a JPEG from its own stored file', async () => {
+  state.flipbook = { ...structuredClone(STORED), socialImage: SOCIAL_IMAGE }
+  const response = await fetch(socialImageUrl())
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'image/jpeg')
+  assert.equal(response.headers.get('cache-control'), 'private, max-age=300')
+  assert.equal(response.headers.get('x-robots-tag'), 'noindex, nofollow')
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+  assert.equal(await response.text(), 'RIFF-page')
+  const [filter] = flipbookModel.findOne.mock.calls.at(-1).arguments
+  assert.deepEqual(filter, { slug: STORED.slug, isPublished: true, status: 'ready' })
+  // Only the preview image itself: never a page image or the original PDF.
+  assert.deepEqual(storage.openPageImageStream.mock.calls.map((call) => call.arguments[0].publicId), [SOCIAL_IMAGE.publicId])
+  assert.equal(storage.openOriginalPdfStream.mock.callCount(), 0)
+})
+
+test('the social preview image is 404 unless the flipbook is published and has one; private files are never sent instead', async () => {
+  for (const change of [
+    { isPublished: false, socialImage: SOCIAL_IMAGE },
+    { status: 'deleting', isPublished: false, socialImage: SOCIAL_IMAGE },
+    { status: 'processing', socialImage: SOCIAL_IMAGE },
+    { socialImage: null },
+    {},
+  ]) {
+    state.flipbook = { ...structuredClone(STORED), ...change }
+    const refused = await fetch(socialImageUrl())
+    assert.equal(refused.status, 404, JSON.stringify(change))
+    assert.deepEqual(await refused.json(), { success: false, message: 'Flipbook not found.' })
+    assert.equal(refused.headers.get('cache-control'), 'no-store')
+  }
+  const lookups = flipbookModel.findOne.mock.callCount()
+  for (const slug of ['Upper-Case', 'a--b', '%2e%2e']) assert.equal((await fetch(socialImageUrl(slug))).status, 404)
+  assert.equal(flipbookModel.findOne.mock.callCount(), lookups)
+  assert.equal(storage.openPageImageStream.mock.callCount(), 0)
+  assert.equal(storage.openOriginalPdfStream.mock.callCount(), 0)
+})
+
+test('a Cloudinary failure for the social preview image is a 502 without details; missing configuration is a 503', async () => {
+  state.flipbook = { ...structuredClone(STORED), socialImage: SOCIAL_IMAGE }
+  storage.openPageImageStream.mock.mockImplementationOnce(async () => {
+    throw new Error('Cloudinary page delivery failed (http 500)')
+  })
+  const failed = await fetch(socialImageUrl())
+  assert.equal(failed.status, 502)
+  assert.deepEqual(await failed.json(), { success: false, message: "We couldn't load the preview image. Please try again." })
+
+  state.cloudinaryConfigured = false
+  const unconfigured = await fetch(socialImageUrl())
+  assert.equal(unconfigured.status, 503)
+  assert.doesNotMatch(await unconfigured.text(), /cloudinary|craftflip\/users/i)
+})
+
 
 test('a normal reading session is not rate limited, and the metadata limit returns a structured 429', async () => {
   // Three full reads of a 50-page flipbook from one address.

@@ -39,7 +39,7 @@ class FakePublishError extends Error {
   }
 }
 const publishing = {
-  publishFlipbook: mock.fn(async () => ({ toSummary: () => ({ id: 'f', isPublished: true }) })),
+  publishFlipbook: mock.fn(async () => ({ _id: 'f', toSummary: () => ({ id: 'f', isPublished: true }) })),
   unpublishFlipbook: mock.fn(async () => ({ toSummary: () => ({ id: 'f', isPublished: false }) })),
   changeSlug: mock.fn(async (user, id, slug) => ({ toSummary: () => ({ id, slug }) })),
 }
@@ -95,6 +95,9 @@ mock.module(moduleUrl('../utils/publishing.js'), {
   },
 })
 
+const socialImage = { ensureSocialImage: mock.fn(async () => 'created') }
+mock.module(moduleUrl('../utils/socialImage.js'), { namedExports: { ensureSocialImage: (...args) => socialImage.ensureSocialImage(...args) } })
+
 const { default: flipbookRoutes } = await import('../routes/flipbookRoutes.js')
 const { notFound, errorHandler } = await import('../middleware/errorHandler.js')
 
@@ -112,10 +115,10 @@ function newUserId() {
   return new mongoose.Types.ObjectId().toString()
 }
 
-function uploadRequest(userId, buffer, filename = 'brochure.pdf') {
+function uploadRequest(userId, buffer, filename = 'brochure.pdf', baseUrl = server.url) {
   const form = new FormData()
   if (buffer) form.append('pdf', new Blob([buffer], { type: 'application/pdf' }), filename)
-  return fetch(`${server.url}/api/flipbooks`, { method: 'POST', headers: { 'x-test-user': userId }, body: form })
+  return fetch(`${baseUrl}/api/flipbooks`, { method: 'POST', headers: { 'x-test-user': userId }, body: form })
 }
 
 beforeEach(() => {
@@ -126,6 +129,7 @@ beforeEach(() => {
   publishing.publishFlipbook.mock.resetCalls()
   publishing.unpublishFlipbook.mock.resetCalls()
   publishing.changeSlug.mock.resetCalls()
+  socialImage.ensureSocialImage.mock.resetCalls()
   flipbookModel.findOneAndUpdate.mock.resetCalls()
   storage.uploadPdf.mock.resetCalls()
   storage.deletePdf.mock.resetCalls()
@@ -169,9 +173,17 @@ test('a request without a file gets a structured 400', async () => {
 
 test('files over 50 MB are rejected with 413', async () => {
   const oversized = Buffer.concat([PDF_BYTES, Buffer.alloc(50 * 1024 * 1024)])
-  const response = await uploadRequest(newUserId(), oversized)
-  assert.equal(response.status, 413)
-  assert.deepEqual(await response.json(), { success: false, message: 'PDF files must be 50 MB or smaller.' })
+  // Its own server (so its own fetch connection pool): the 413 arrives while the body is still being
+  // written, and the socket's later write error (ECONNABORTED) made fetch fail the next test's request
+  // queued for the shared server.
+  const ownServer = await startServer(app)
+  try {
+    const response = await uploadRequest(newUserId(), oversized, 'brochure.pdf', ownServer.url)
+    assert.equal(response.status, 413)
+    assert.deepEqual(await response.json(), { success: false, message: 'PDF files must be 50 MB or smaller.' })
+  } finally {
+    ownServer.close()
+  }
   assert.equal(storage.uploadPdf.mock.callCount(), 0)
 })
 
@@ -601,6 +613,18 @@ test('publishing errors keep their status and safe message; invalid IDs are 404 
   assert.equal((await publicationRequest(newUserId(), 'not-an-id', 'unpublish')).status, 404)
   assert.equal(publishing.publishFlipbook.mock.callCount(), 3)
   assert.equal(publishing.unpublishFlipbook.mock.callCount(), 0)
+  assert.equal(socialImage.ensureSocialImage.mock.callCount(), 0)
+})
+
+test('a successful publish starts the social preview image without waiting for it', async () => {
+  socialImage.ensureSocialImage.mock.mockImplementationOnce(() => new Promise(() => {}))
+  const response = await publicationRequest(newUserId(), newUserId(), 'publish')
+  assert.equal(response.status, 200)
+  assert.equal(socialImage.ensureSocialImage.mock.callCount(), 1)
+  assert.equal(socialImage.ensureSocialImage.mock.calls[0].arguments[0], 'f')
+
+  await publicationRequest(newUserId(), newUserId(), 'unpublish')
+  assert.equal(socialImage.ensureSocialImage.mock.callCount(), 1)
 })
 
 test('an unexpected publishing failure is a generic 500', async () => {

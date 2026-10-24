@@ -72,6 +72,39 @@ test("deleting a flipbook removes its original PDF and every attempt's page imag
   assert.equal(cloudinary.uploader.destroy.mock.calls[0].arguments[1].resource_type, 'raw')
 })
 
+test('deleting a flipbook removes its social preview images, including one left by an interrupted generation', async () => {
+  const flipbook = newFlipbook()
+  const other = newFlipbook()
+  const folder = (each) => `craftflip/users/${each.ownerId}/flipbooks/${each._id}/social`
+  for (const each of [flipbook, other]) {
+    stored.raw.add(each.pdfAsset.publicId)
+    stored.image.add(`${folder(each)}/og-current`)
+    stored.image.add(`${folder(each)}/og-orphan`)
+  }
+  await deleteFlipbookAssets(flipbook)
+  assert.deepEqual([...stored.image], [`${folder(other)}/og-current`, `${folder(other)}/og-orphan`])
+  const socialCall = cloudinary.api.delete_resources_by_prefix.mock.calls.find((call) => call.arguments[0].endsWith('/social/'))
+  assert.equal(socialCall.arguments[0], `${folder(flipbook)}/`)
+  assert.equal(socialCall.arguments[1].type, 'authenticated')
+})
+
+test('the social preview image is uploaded as a private image under the flipbook folder, never overwriting', async () => {
+  const { socialFolder, uploadSocialImage } = await import('../utils/pdfStorage.js')
+  const uploads = []
+  cloudinary.uploader.upload_stream = (options, callback) => ({
+    end: (buffer) => {
+      uploads.push(options)
+      callback(null, { public_id: options.public_id, version: 1, format: 'jpg', bytes: buffer.length })
+    },
+  })
+  const flipbook = newFlipbook()
+  const asset = await uploadSocialImage(Buffer.from('jpeg'), `${socialFolder(flipbook.ownerId, flipbook._id)}/og-1`)
+  assert.equal(asset.public_id, `craftflip/users/${flipbook.ownerId}/flipbooks/${flipbook._id}/social/og-1`)
+  assert.equal(uploads[0].type, 'authenticated')
+  assert.equal(uploads[0].resource_type, 'image')
+  assert.equal(uploads[0].overwrite, false)
+})
+
 test('repeating a deletion is safe when the files are already gone', async () => {
   const flipbook = newFlipbook()
   storeFlipbookFiles(flipbook)

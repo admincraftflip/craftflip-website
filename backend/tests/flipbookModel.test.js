@@ -160,3 +160,25 @@ test('reader settings default to the previous behaviour and the schema refuses i
   const withLogo = new Flipbook({ ...fields, reader: { logo: { publicId: 'secret-id', version: 1, format: 'webp', width: 5, height: 5, uploadedAt: new Date() } } })
   assert.doesNotMatch(JSON.stringify(withLogo.toSummary()), /secret-id/)
 })
+
+test('a flipbook starts without a social preview image, and toSummary never exposes it', () => {
+  const fields = {
+    ownerId: new mongoose.Types.ObjectId(),
+    title: 'Brochure',
+    slug: 'brochure-og12',
+    status: 'ready',
+    originalFile: { filename: 'brochure.pdf', sizeBytes: 1234 },
+    pdfAsset: { publicId: 'p', version: 1, resourceType: 'raw', deliveryType: 'authenticated' },
+  }
+  const fresh = new Flipbook(fields)
+  assert.equal(fresh.socialImage, null)
+  assert.equal(fresh.socialImageGeneration.attempts, 0)
+  assert.equal(fresh.validateSync(), undefined)
+
+  const withImage = new Flipbook({
+    ...fields,
+    socialImage: { publicId: 'craftflip/users/u/flipbooks/f/social/og-1', version: 3, format: 'jpg', width: 1200, height: 630, bytes: 40000, createdAt: new Date() },
+  })
+  assert.equal(withImage.validateSync(), undefined)
+  assert.doesNotMatch(JSON.stringify(withImage.toSummary()), /social|og-1|craftflip\/users/)
+})

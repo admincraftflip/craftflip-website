@@ -108,6 +108,23 @@ export async function deleteFlipbookAssets(flipbook) {
   await deletePageImages(`${folder}/pages`)
   // Logos and background images (Milestone 9), current and any left over from an interrupted replacement.
   await deletePageImages(brandingFolder(flipbook.ownerId, flipbook._id))
+  // The social preview image (Milestone 13), and any left over from an interrupted generation.
+  await deletePageImages(socialFolder(flipbook.ownerId, flipbook._id))
+}
+
+// The social preview image (Milestone 13): a private JPEG like the page images, served to link
+// preview crawlers only through the public API while the flipbook is published. A new file name
+// per generation, so an upload never overwrites a stored image.
+export function socialFolder(userId, flipbookId) {
+  return `${flipbookFolder(userId, flipbookId)}/social`
+}
+
+export function uploadSocialImage(buffer, publicId) {
+  return uploadPageImage(buffer, publicId)
+}
+
+export function deleteSocialImage(publicId) {
+  return deleteLogoImage(publicId)
 }
 
 const PAGE_FETCH_TIMEOUT_MS = 30 * 1000

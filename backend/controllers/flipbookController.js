@@ -12,6 +12,7 @@ import { conversionQueueIsFull, queueConversion } from '../utils/pdfConversion.j
 import { maxPagesForPlan, maxPublishedForPlan } from '../utils/planLimits.js'
 import { PublishError, changeSlug, isSlugRetired, publishFlipbook, publishedCountFor, unpublishFlipbook } from '../utils/publishing.js'
 import { pageImageContentType, pageImageVariant } from '../utils/pageImageVariant.js'
+import { ensureSocialImage } from '../utils/socialImage.js'
 
 const DUPLICATE_KEY_ERROR = 11000
 const MAX_SLUG_ATTEMPTS = 5
@@ -290,6 +291,9 @@ export async function publishOwnFlipbook(req, res) {
   }
   try {
     const flipbook = await publishFlipbook(req.user, id)
+    // Flipbooks converted before Milestone 13, or whose image failed earlier, get their social
+    // preview image before the link is shared. Not awaited; it never fails the publish.
+    ensureSocialImage(flipbook._id)
     res.json({ success: true, data: { flipbook: flipbook.toSummary() } })
   } catch (error) {
     sendPublishError(res, error)

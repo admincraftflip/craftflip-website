@@ -6,6 +6,7 @@ import {
   getPublicFlipbook,
   getPublicLogo,
   getPublicPageImage,
+  getPublicSocialImage,
   publicResponseHeaders,
   recordActivity,
 } from '../controllers/publicFlipbookController.js'
@@ -21,6 +22,8 @@ router.get('/flipbooks/:slug/pages/:pageNumber', publicPageImageRateLimiter, get
 router.get('/flipbooks/:slug/logo', publicFlipbookRateLimiter, getPublicLogo)
 router.get('/flipbooks/:slug/background', publicFlipbookRateLimiter, getPublicBackground)
 router.get('/flipbooks/:slug/download', publicDownloadRateLimiter, downloadPublicPdf)
+// Link preview image (Milestone 13), fetched by social media crawlers from the og:image tag.
+router.get('/flipbooks/:slug/social-image', publicFlipbookRateLimiter, getPublicSocialImage)
 // Analytics (Milestone 10). The viewer sends text/plain JSON (no CORS preflight); 4 KB is far more
 // than a report needs.
 router.post('/flipbooks/:slug/activity', publicActivityRateLimiter, express.text({ type: 'text/plain', limit: '4kb' }), recordActivity)

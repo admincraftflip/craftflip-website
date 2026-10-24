@@ -3,6 +3,7 @@ import { getCloudinary } from '../config/cloudinary.js'
 import { MAX_PDF_SIZE_BYTES, hasPdfSignature } from './pdfFile.js'
 import { PdfRenderError, openPdf } from './pdfRenderer.js'
 import { deletePageImages, downloadPdf, pageFolder, pagePublicId, uploadPageImage } from './pdfStorage.js'
+import { ensureSocialImage } from './socialImage.js'
 
 // One conversion at a time keeps memory predictable on a single Railway instance.
 const MAX_ACTIVE_CONVERSIONS = 1
@@ -181,6 +182,9 @@ export async function runConversion(flipbook, { maxPages, pdf: uploadedPdf = nul
       'conversion.error': null,
     })
     if (result.matchedCount === 0) await removePageImages(folder)
+    // The social preview image (Milestone 13) is made from the stored first page once the
+    // flipbook is ready, without holding up the queue. Its failure never fails the conversion.
+    else ensureSocialImage(flipbook._id)
     endStep('save')
     const totalSeconds = Object.values(timings).reduce((sum, ms) => sum + ms, 0) / 1000
     const steps = Object.entries(timings).map(([name, ms]) => `${name} ${(ms / 1000).toFixed(1)}s`).join(', ')

@@ -29,6 +29,9 @@ mock.module(moduleUrl('../utils/pdfStorage.js'), {
   },
 })
 mock.module(moduleUrl('../models/Flipbook.js'), { defaultExport: flipbookModel })
+// The social preview image (Milestone 13) has its own tests in socialImage.test.js.
+const socialImage = { ensureSocialImage: mock.fn(async () => 'created') }
+mock.module(moduleUrl('../utils/socialImage.js'), { namedExports: { ensureSocialImage: (...args) => socialImage.ensureSocialImage(...args) } })
 
 const { runConversion, recoverInterruptedConversions, CONVERSION_MESSAGES } = await import('../utils/pdfConversion.js')
 
@@ -51,7 +54,7 @@ function lastUpdate() {
 beforeEach(() => {
   state.storedPdf = makePdf(3)
   state.updateMatched = 1
-  for (const fn of [...Object.values(storage), ...Object.values(flipbookModel)]) fn.mock.resetCalls()
+  for (const fn of [...Object.values(storage), ...Object.values(flipbookModel), socialImage.ensureSocialImage]) fn.mock.resetCalls()
 })
 
 test('converts every page in order and records them on the flipbook', async () => {
@@ -71,6 +74,26 @@ test('converts every page in order and records them on the flipbook', async () =
   assert.equal(fields.pages[2].publicId, `${folder}/page-003`)
   assert.equal(fields.pages[0].width, 1600)
   assert.equal(fields.pages[0].format, 'webp')
+  assert.equal(storage.deletePageImages.mock.callCount(), 0)
+})
+
+test('a ready flipbook starts its social preview image; failed and superseded conversions do not', async () => {
+  const flipbook = claimedFlipbook()
+  await runConversion(flipbook, { maxPages: 100 })
+  assert.equal(socialImage.ensureSocialImage.mock.callCount(), 1)
+  assert.equal(socialImage.ensureSocialImage.mock.calls[0].arguments[0], flipbook._id)
+
+  socialImage.ensureSocialImage.mock.resetCalls()
+  await runConversion(claimedFlipbook(), { maxPages: 2 })
+  state.updateMatched = 0
+  await runConversion(claimedFlipbook(), { maxPages: 100 })
+  assert.equal(socialImage.ensureSocialImage.mock.callCount(), 0)
+})
+
+test('a social preview image that fails does not change a successful conversion', async () => {
+  socialImage.ensureSocialImage.mock.mockImplementationOnce(async () => 'failed')
+  await runConversion(claimedFlipbook(), { maxPages: 100 })
+  assert.equal(lastUpdate().fields.status, 'ready')
   assert.equal(storage.deletePageImages.mock.callCount(), 0)
 })
 
