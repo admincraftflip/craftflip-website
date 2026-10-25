@@ -54,6 +54,57 @@ export function toolbarMode(stageWidth) {
   return 'minimal'
 }
 
+// Room the toolbar items take with touch-sized (44px) buttons, the widest case, as measured in
+// Chrome: buttons, the wide Fit button (with "250%" in it), dividers with their margins, the 2px gap
+// between items, the bar's padding plus the toolbar's side padding, and the page box, sized like
+// PageBox in ReaderNav: an input of the label's length plus 1.5ch (at least 4.5ch), then "/ total".
+const TOOL_BUTTON_PX = 44
+const WIDE_BUTTON_PX = 58
+const DIVIDER_PX = 5
+const ITEM_GAP_PX = 2
+const BAR_FRAME_PX = 24
+const CH_PX = 7.7
+// Spreads ("12–13") appear only on stages at least this wide (utils/bookLayout.js).
+const SPREAD_STAGE_MIN_WIDTH = 640
+
+function pageBoxPx(stageWidth, pageCount, withTotal) {
+  const digits = String(Math.max(1, pageCount || 1)).length
+  const labelLength = stageWidth >= SPREAD_STAGE_MIN_WIDTH ? 2 * digits + 1 : digits
+  const input = (Math.max(3, labelLength) + 1.5) * CH_PX
+  return input + 12 + (withTotal ? 7 + 8 * digits : 0)
+}
+
+export function toolbarWidth(stageWidth, { mode, optional, fullscreen, pageCount, pageTotal }) {
+  const items = [...Array(optional + 3).fill(TOOL_BUTTON_PX), DIVIDER_PX, pageBoxPx(stageWidth, pageCount, pageTotal)]
+  if (mode === 'full') items.push(DIVIDER_PX, TOOL_BUTTON_PX, WIDE_BUTTON_PX, TOOL_BUTTON_PX)
+  if (mode === 'compact') items.push(TOOL_BUTTON_PX)
+  if (fullscreen) items.push(...(mode === 'full' ? [DIVIDER_PX] : []), TOOL_BUTTON_PX)
+  return BAR_FRAME_PX + items.reduce((sum, width) => sum + width, 0) + ITEM_GAP_PX * (items.length - 1)
+}
+
+// Which toolbar controls are shown for a stage width, so the bar never runs wider than the stage.
+// It starts from the mode for the width (toolbarMode) and, while the bar would not fit, gives up in
+// turn: the full zoom controls (compact), the zoom button (minimal; phones can pinch), the
+// fullscreen button, the Contents button (with search, the search panel then lists the contents:
+// contentsInSearch) and the page total in the page box ("4–5" instead of "4–5 / 120").
+// fullscreenSupported: whether the browser allows fullscreen here at all.
+export function toolbarButtons(stageWidth, { hasContents = false, hasSearch = false, pageCount = 0, fullscreenSupported = true } = {}) {
+  const layout = { mode: toolbarMode(stageWidth), contents: hasContents, search: hasSearch, contentsInSearch: false, fullscreen: fullscreenSupported, pageTotal: true }
+  const fits = () => toolbarWidth(stageWidth, { ...layout, optional: Number(layout.contents) + Number(layout.search), pageCount }) <= stageWidth
+  const steps = [
+    () => layout.mode === 'full' && (layout.mode = 'compact'),
+    () => layout.mode === 'compact' && (layout.mode = 'minimal'),
+    () => layout.fullscreen && !(layout.fullscreen = false),
+    () => layout.contents && layout.search && !(layout.contents = false) && (layout.contentsInSearch = true),
+    () => layout.pageTotal && !(layout.pageTotal = false),
+  ]
+  for (const step of steps) {
+    if (fits()) break
+    step()
+  }
+  return layout
+}
+
 // ---------- Thumbnails ----------
 
 const THUMBNAIL_CONCURRENCY = 4
@@ -155,10 +206,10 @@ export function fullscreenApi(doc = globalThis.document) {
   }
 }
 
-// ---------- Contents ----------
+// ---------- Contents and search ----------
 
-// The table of contents opens beside the book on wide stages (the book stays visible) and covers
-// the stage on narrow ones, like the page overview.
+// The table of contents and the search panel open beside the book on wide stages (the book stays
+// visible) and cover the stage on narrow ones, like the page overview.
 export const CONTENTS_SIDE_PANEL_MIN_WIDTH = 640
 
 export function contentsPanelLayout(stageWidth) {

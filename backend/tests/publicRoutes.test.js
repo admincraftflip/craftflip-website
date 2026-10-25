@@ -62,6 +62,19 @@ mock.module(moduleUrl('../utils/socialImage.js'), {
   },
 })
 
+// Text search itself is covered in textSearch.test.js; here only how the public routes use it.
+const textSearch = {
+  ensureSearchText: mock.fn(async () => 'ready'),
+  searchFlipbook: mock.fn(async () => ({ status: 'ready', results: [], total: 0, limited: false })),
+}
+mock.module(moduleUrl('../utils/textSearch.js'), {
+  namedExports: {
+    ensureSearchText: (...args) => textSearch.ensureSearchText(...args),
+    needsSearchText: (flipbook) => flipbook.status === 'ready' && !flipbook.textSearch?.status && (flipbook.textSearch?.attempts ?? 0) < 3,
+    searchFlipbook: (...args) => textSearch.searchFlipbook(...args),
+  },
+})
+
 const { default: publicRoutes } = await import('../routes/publicRoutes.js')
 const { errorHandler } = await import('../middleware/errorHandler.js')
 
@@ -86,6 +99,7 @@ beforeEach(() => {
   state.cloudinaryConfigured = true
   state.flipbook = structuredClone(STORED)
   flipbookModel.findOne.mock.resetCalls()
+  for (const fn of Object.values(textSearch)) fn.mock.resetCalls()
   storage.openPageImageStream.mock.resetCalls()
   storage.openOriginalPdfStream.mock.resetCalls()
   viewSessionModel.findOneAndUpdate.mock.resetCalls()
@@ -111,6 +125,8 @@ test('a published flipbook returns only title, slug, viewing style, reader setti
           { pageNumber: 2, width: 1600, height: 2071 },
         ],
         socialImage: null,
+        // Converted before text search: its text is read in the background (textSearch.test.js).
+        search: 'preparing',
       },
     },
   })
@@ -119,6 +135,19 @@ test('a published flipbook returns only title, slug, viewing style, reader setti
 
   const [filter] = flipbookModel.findOne.mock.calls[0].arguments
   assert.deepEqual(filter, { slug: STORED.slug, isPublished: true, status: 'ready' })
+})
+
+// Before the rate limit test below uses up the metadata limit.
+test('the metadata says whether search is ready, being prepared or unavailable, and starts reading older flipbooks', async () => {
+  state.flipbook.textSearch = { status: 'ready', attemptId: 'a', attempts: 0, leaseExpiresAt: null }
+  assert.equal((await (await metadataRequest(STORED.slug)).json()).data.flipbook.search, 'ready')
+  state.flipbook.textSearch = { status: 'empty', attemptId: 'a', attempts: 0, leaseExpiresAt: null }
+  assert.equal((await (await metadataRequest(STORED.slug)).json()).data.flipbook.search, 'unavailable')
+  assert.equal(textSearch.ensureSearchText.mock.callCount(), 0)
+  delete state.flipbook.textSearch
+  assert.equal((await (await metadataRequest(STORED.slug)).json()).data.flipbook.search, 'preparing')
+  assert.equal(textSearch.ensureSearchText.mock.callCount(), 1)
+  assert.equal(String(textSearch.ensureSearchText.mock.calls[0].arguments[0]), STORED._id)
 })
 
 test('an Authorization header is ignored by the public API', async () => {
@@ -567,4 +596,36 @@ test('activity reports are rate limited per address with a structured 429', asyn
   const limited = await activityRequest({ visitorId: VISITOR })
   assert.equal(limited.status, 429)
   assert.deepEqual(await limited.json(), { success: false, message: 'Too many requests. Please try again in a few minutes.' })
+})
+
+// ---------- Text search (October 2026) ----------
+
+function searchRequest(slug, query) {
+  return fetch(`${server.url}/api/public/flipbooks/${slug}/search?q=${encodeURIComponent(query)}`)
+}
+
+test('a published flipbook can be searched without sign-in; the results are sent as the search returns them', async () => {
+  const results = [{ page: 2, before: '…the ', match: 'Garden', after: ' terrace…' }]
+  textSearch.searchFlipbook.mock.mockImplementationOnce(async () => ({ status: 'ready', results, total: 1, limited: false }))
+  const response = await searchRequest(STORED.slug, 'garden')
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { success: true, data: { status: 'ready', results, total: 1, limited: false } })
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  const [flipbook, query] = textSearch.searchFlipbook.mock.calls[0].arguments
+  assert.equal(flipbook.slug, STORED.slug)
+  assert.equal(query, 'garden')
+  const [filter] = flipbookModel.findOne.mock.calls[0].arguments
+  assert.deepEqual(filter, { slug: STORED.slug, isPublished: true, status: 'ready' })
+})
+
+test('unpublished, unknown and invalid flipbooks are not searched; a bad query is refused with 400', async () => {
+  state.flipbook.isPublished = false
+  assert.equal((await searchRequest(STORED.slug, 'garden')).status, 404)
+  assert.equal((await searchRequest('Not_A_Slug', 'garden')).status, 404)
+  assert.equal(textSearch.searchFlipbook.mock.callCount(), 0)
+  state.flipbook.isPublished = true
+  textSearch.searchFlipbook.mock.mockImplementationOnce(async () => ({ error: 'Type at least 2 characters to search.' }))
+  const response = await searchRequest(STORED.slug, 'g')
+  assert.equal(response.status, 400)
+  assert.deepEqual(await response.json(), { success: false, message: 'Type at least 2 characters to search.' })
 })

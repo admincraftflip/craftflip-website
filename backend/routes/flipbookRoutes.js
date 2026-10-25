@@ -1,6 +1,14 @@
 import { Router } from 'express'
 import { requireAuth } from '../middleware/requireAuth.js'
-import { conversionRateLimiter, deleteRateLimiter, pageImageRateLimiter, publishRateLimiter, settingsRateLimiter, uploadRateLimiter } from '../middleware/rateLimiter.js'
+import {
+  conversionRateLimiter,
+  deleteRateLimiter,
+  pageImageRateLimiter,
+  publishRateLimiter,
+  searchRateLimiter,
+  settingsRateLimiter,
+  uploadRateLimiter,
+} from '../middleware/rateLimiter.js'
 import { receiveBackground, receiveLogo, receivePdf, requirePdfStorage } from '../middleware/pdfUpload.js'
 import {
   downloadOwnOriginal,
@@ -18,6 +26,7 @@ import {
   getPageImage,
   listFlipbooks,
   publishOwnFlipbook,
+  searchOwnFlipbook,
   startConversion,
   unpublishOwnFlipbook,
   updateFlipbookSettings,
@@ -45,5 +54,6 @@ router.post('/:id/publish', publishRateLimiter, publishOwnFlipbook)
 router.post('/:id/unpublish', publishRateLimiter, unpublishOwnFlipbook)
 router.get('/:id/pages', getFlipbookPages)
 router.get('/:id/pages/:pageNumber/image', pageImageRateLimiter, getPageImage)
+router.get('/:id/search', searchRateLimiter, searchOwnFlipbook)
 
 export default router

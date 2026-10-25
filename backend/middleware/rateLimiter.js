@@ -145,3 +145,27 @@ export const analyticsRateLimiter = rateLimit({
     res.status(429).json({ success: false, message: 'Too many requests. Please try again in a few minutes.' })
   },
 })
+
+// Text search (October 2026). The reader sends one search a moment after typing stops, so these
+// allow long searching sessions while keeping a script from reading a whole flipbook quickly.
+export const publicSearchRateLimiter = rateLimit({
+  windowMs: FIFTEEN_MINUTES_MS,
+  limit: 300,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({ success: false, message: 'Too many searches. Please try again in a few minutes.' })
+  },
+})
+
+// The owner's searches in the preview, per user. Mounted after requireAuth.
+export const searchRateLimiter = rateLimit({
+  windowMs: FIFTEEN_MINUTES_MS,
+  limit: 600,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user._id.toString(),
+  handler: (req, res) => {
+    res.status(429).json({ success: false, message: 'Too many searches. Please try again in a few minutes.' })
+  },
+})

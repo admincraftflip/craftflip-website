@@ -10,6 +10,7 @@ import { useStageSize } from '../hooks/useStageSize'
 import { useViewTracking } from '../hooks/useViewTracking'
 import { VIEWER_MESSAGES } from '../utils/viewerMessages'
 import { publicViewerStateFor } from '../utils/publication'
+import { searchAvailability } from '../utils/textSearch'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL
 
@@ -55,6 +56,15 @@ export default function PublicViewerPage({ embed = false }) {
     [slug]
   )
 
+  // Text search (October 2026): matches as page numbers and snippets, under the same public checks.
+  const searchText = useCallback(
+    async (query, signal) => {
+      const response = await publicApi.get(`/api/public/flipbooks/${encodeURIComponent(slug)}/search`, { params: { q: query }, signal })
+      return response.data.data
+    },
+    [slug]
+  )
+
   const flipbook = viewer.flipbook
   // Analytics (Milestone 10): the visit and the pages shown, once the flipbook has loaded.
   const onPagesShown = useViewTracking(API_BASE, slug, { active: viewer.state === 'loaded' && flipbook.pages.length > 0, embedded: embed })
@@ -92,6 +102,8 @@ export default function PublicViewerPage({ embed = false }) {
         controlColor={isHexColor(reader.primaryColor) ? reader.primaryColor : undefined}
         cta={ctaToShow(reader)}
         contents={reader.contents}
+        searchText={searchText}
+        search={searchAvailability(flipbook)}
         tone={background?.tone ?? null}
         fullscreenRef={stageRef}
         onPagesShown={onPagesShown}

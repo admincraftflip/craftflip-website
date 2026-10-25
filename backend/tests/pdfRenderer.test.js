@@ -38,3 +38,13 @@ test('requests after close are rejected instead of hanging', async () => {
   await renderer.close()
   await assert.rejects(renderer.renderPage(1), PdfRenderError)
 })
+
+test('each rendered page brings its text for search, and text can be read without rendering', async () => {
+  const renderer = await openPdf(makePdf(2))
+  try {
+    assert.equal((await renderer.renderPage(1)).text, 'Page 1')
+    assert.equal(await renderer.readText(2), 'Page 2')
+  } finally {
+    await renderer.close()
+  }
+})

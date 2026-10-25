@@ -218,6 +218,13 @@ No new accounts, packages, environment variables or migrations. Existing flipboo
 - The reader (preview, public link and embed, every style) then shows a Contents button at the left of the toolbar. It opens a list beside the book on wide screens and over the reader on phones; choosing a section goes to its page. Remove every section to hide the button
 - Owner check: add contents to one of your flipbooks, then try the button on a computer and a real phone (including a 320px-wide phone, where the Contents button replaces the fullscreen button)
 
+### Text search (unnumbered follow-up, October 2026)
+Status: implemented and committed for deployment October 26, 2026 (backend 281, frontend 119 passing, lint and build pass); owner checks deferred to the final product check. No new accounts, packages, environment variables or migrations; one new MongoDB collection (FlipbookText) is created automatically.
+- New uploads keep each page's text during conversion. Existing flipbooks get theirs read from the stored PDF the first time their preview or public link is opened (the Search button then says it is being prepared for a minute)
+- The reader (preview, public link and embed, every style) shows a Search button when the flipbook has text. Results list the page and a snippet; choosing one goes to that page; previous and next step through them. Scanned PDFs without text have no Search button
+- Check locally: `cd backend && npm test` and `cd frontend && npm test && npm run lint && npm run build`
+- Owner check: open an existing flipbook's preview, wait a minute, search it there, on the public link and in an embed, on a computer and a real phone; then upload a new PDF and search it once Ready
+
 ---
 
 ## Environment variable reference

@@ -4,6 +4,7 @@ import { MAX_PDF_SIZE_BYTES, hasPdfSignature } from './pdfFile.js'
 import { PdfRenderError, openPdf } from './pdfRenderer.js'
 import { deletePageImages, downloadPdf, pageFolder, pagePublicId, uploadPageImage } from './pdfStorage.js'
 import { ensureSocialImage } from './socialImage.js'
+import { removeFlipbookText, saveFlipbookText } from './textSearch.js'
 
 // One conversion at a time keeps memory predictable on a single Railway instance.
 const MAX_ACTIVE_CONVERSIONS = 1
@@ -92,9 +93,10 @@ function createProgressReporter(flipbook) {
 
 // Renders and uploads every page with at most PAGE_CONCURRENCY pages in flight. Pages may finish
 // in any order; each result is stored at its own index, so the page list is always in reading
-// order. On the first failure no new page is started, and the function waits for pages already
-// in flight to settle before throwing, so no upload can land after the caller's cleanup.
-export async function renderAndStorePages(renderer, folder, { isTimedOut, onPageDone }) {
+// order. onPageText(pageNumber, text) receives each page's text for search. On the first failure
+// no new page is started, and the function waits for pages already in flight to settle before
+// throwing, so no upload can land after the caller's cleanup.
+export async function renderAndStorePages(renderer, folder, { isTimedOut, onPageDone, onPageText = () => {} }) {
   const pages = new Array(renderer.pageCount)
   let nextPageNumber = 1
   let completed = 0
@@ -106,6 +108,7 @@ export async function renderAndStorePages(renderer, folder, { isTimedOut, onPage
       try {
         if (isTimedOut()) throw new ConversionError(CONVERSION_MESSAGES.timeout)
         const image = await renderer.renderPage(pageNumber)
+        onPageText(pageNumber, image.text ?? '')
         const asset = await uploadPageImage(image.data, pagePublicId(folder, pageNumber))
         pages[pageNumber - 1] = {
           pageNumber,
@@ -165,12 +168,25 @@ export async function runConversion(flipbook, { maxPages, pdf: uploadedPdf = nul
 
     pagesStarted = true
     progress.stage('converting', { 'conversion.totalPages': renderer.pageCount, 'conversion.completedPages': 0 })
+    const texts = new Array(renderer.pageCount).fill('')
     const pages = await renderAndStorePages(renderer, folder, {
       isTimedOut: () => timedOut,
       onPageDone: (completed, total) => progress.pagesDone(completed, total),
+      onPageText: (pageNumber, text) => {
+        texts[pageNumber - 1] = text
+      },
     })
     endStep('pages')
     progress.stage('finalizing')
+    // The page text for search (text search, October 2026) is stored before the flipbook becomes
+    // Ready. If storing it fails, the flipbook is still made Ready and its text is read again from
+    // the stored PDF on first use (utils/textSearch.js).
+    let textStatus = null
+    try {
+      textStatus = await saveFlipbookText(flipbook, flipbook.conversion.attemptId, texts)
+    } catch (error) {
+      console.error(`Search text could not be saved for flipbook ${flipbook._id}: ${error.name}`)
+    }
     // Progress writes are conditional on status processing, so they must all land before the
     // final write; otherwise none could follow it anyway.
     await progress.flush()
@@ -180,8 +196,12 @@ export async function runConversion(flipbook, { maxPages, pdf: uploadedPdf = nul
       pages,
       'conversion.completedAt': new Date(),
       'conversion.error': null,
+      textSearch: { status: textStatus, attemptId: textStatus ? flipbook.conversion.attemptId : null, attempts: 0, leaseExpiresAt: null },
     })
-    if (result.matchedCount === 0) await removePageImages(folder)
+    if (result.matchedCount === 0) {
+      await removePageImages(folder)
+      if (textStatus === 'ready') await removeFlipbookText(flipbook._id, flipbook.conversion.attemptId)
+    }
     // The social preview image (Milestone 13) is made from the stored first page once the
     // flipbook is ready, without holding up the queue. Its failure never fails the conversion.
     else ensureSocialImage(flipbook._id)

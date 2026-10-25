@@ -4,10 +4,13 @@ import { fileURLToPath } from 'node:url'
 import { createCanvas } from '@napi-rs/canvas'
 import sharp from 'sharp'
 import { getDocument, InvalidPDFException, PasswordException, VerbosityLevel } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { textFromItems } from './pageText.js'
 
 // Runs in a worker thread: PDF parsing and rasterizing is CPU-bound and would block Express.
 // Several render requests can be in flight: while sharp encodes one page on libuv's thread pool,
 // pdf.js can render the next (utils/pdfConversion.js keeps at most PAGE_CONCURRENCY in flight).
+// Each rendered page also returns its text for search; "text" requests read the text alone (older
+// flipbooks, utils/textSearch.js).
 
 const PAGE_WIDTH_PX = 1600
 const MAX_PAGE_SIDE_PX = 4000
@@ -46,9 +49,29 @@ function scaleFor(viewport) {
   return Math.min(widthScale, MAX_PAGE_SIDE_PX / Math.max(viewport.width, viewport.height))
 }
 
+// The page's text for search, or '' when pdf.js cannot read it (the page still renders).
+async function readText(page) {
+  try {
+    const content = await page.getTextContent()
+    return textFromItems(content.items)
+  } catch {
+    return ''
+  }
+}
+
+async function pageText(pageNumber) {
+  const page = await pdfDocument.getPage(pageNumber)
+  try {
+    return { text: await readText(page) }
+  } finally {
+    page.cleanup()
+  }
+}
+
 async function renderPage(pageNumber) {
   const page = await pdfDocument.getPage(pageNumber)
   try {
+    const text = await readText(page)
     const viewport = page.getViewport({ scale: scaleFor(page.getViewport({ scale: 1 })) })
     const canvas = createCanvas(Math.round(viewport.width), Math.round(viewport.height))
     await page.render({ canvas, canvasContext: canvas.getContext('2d'), viewport, background: '#ffffff' }).promise
@@ -62,7 +85,7 @@ async function renderPage(pageNumber) {
       .webp({ quality: WEBP_QUALITY })
       .toBuffer()
     const data = new Uint8Array(image.buffer, image.byteOffset, image.byteLength).slice()
-    return { data, width: canvas.width, height: canvas.height }
+    return { data, width: canvas.width, height: canvas.height, text }
   } finally {
     page.cleanup()
   }
@@ -70,7 +93,8 @@ async function renderPage(pageNumber) {
 
 parentPort.on('message', async ({ id, type, data, pageNumber }) => {
   try {
-    const result = type === 'open' ? await openDocument(data) : await renderPage(pageNumber)
+    const handlers = { open: () => openDocument(data), render: () => renderPage(pageNumber), text: () => pageText(pageNumber) }
+    const result = await handlers[type]()
     parentPort.postMessage({ id, ok: true, result }, result.data ? [result.data.buffer] : [])
   } catch (error) {
     const code = ['password', 'unreadable'].includes(error.message) ? error.message : 'render-failed'

@@ -14,6 +14,7 @@ import ReaderBackground from '../components/ReaderBackground'
 import ReaderSettingsDialog from '../components/ReaderSettingsDialog'
 import { useOwnerImage, useOwnerLogo } from '../hooks/useOwnerLogo'
 import { backgroundAppearance, ctaToShow, isHexColor, readerOf } from '../utils/readerSettings'
+import { searchAvailability } from '../utils/textSearch'
 
 const PROCESSING_POLL_INTERVAL_MS = 3000
 
@@ -38,6 +39,15 @@ export default function FlipbookViewerPage() {
       const params = size === 'thumb' ? { size } : undefined
       const response = await api.get(`/api/flipbooks/${id}/pages/${pageNumber}/image`, { responseType: 'blob', signal, params })
       return response.data
+    },
+    [id]
+  )
+
+  // Text search (October 2026) in the owner's preview, through the authenticated API.
+  const searchText = useCallback(
+    async (query, signal) => {
+      const response = await api.get(`/api/flipbooks/${id}/search`, { params: { q: query }, signal })
+      return response.data.data
     },
     [id]
   )
@@ -176,6 +186,8 @@ export default function FlipbookViewerPage() {
         controlColor={isHexColor(reader.primaryColor) ? reader.primaryColor : undefined}
         cta={ctaToShow(reader)}
         contents={reader.contents}
+        searchText={searchText}
+        search={searchAvailability(flipbook)}
         tone={background?.tone ?? null}
         fullscreenRef={stageRef}
       />

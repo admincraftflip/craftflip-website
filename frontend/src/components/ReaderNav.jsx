@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, LayoutGrid, Maximize, Minimize, TableOfContents, ZoomIn, ZoomOut } from 'lucide-react'
+import { ChevronLeft, ChevronRight, LayoutGrid, Maximize, Minimize, Search, TableOfContents, ZoomIn, ZoomOut } from 'lucide-react'
 import { ZOOM_LEVELS, parsePageInput } from '../utils/readerControls'
 
 const NAV_PADDING_BOTTOM_PX = 16
@@ -30,7 +30,8 @@ function Divider() {
 
 // The page box: shows the pages on screen ("4–5 / 20"). Focusing it lets the reader type a page
 // number; Enter goes there, Escape or leaving the box keeps the current page.
-function PageBox({ label, firstPage, pageCount, onGoToPage }) {
+// showTotal false: the narrowest bars leave out "/ total" (still in the field's label).
+function PageBox({ label, firstPage, pageCount, onGoToPage, showTotal = true }) {
   const [draft, setDraft] = useState(null)
   const [invalid, setInvalid] = useState(false)
   const editing = draft !== null
@@ -75,13 +76,13 @@ function PageBox({ label, firstPage, pageCount, onGoToPage }) {
           if (event.key === 'Escape') event.currentTarget.blur()
         }}
       />
-      <span className="whitespace-nowrap text-stone-400">/ {pageCount}</span>
+      {showTotal && <span className="whitespace-nowrap text-stone-400">/ {pageCount}</span>}
     </form>
   )
 }
 
 // The reader toolbar, shared by every viewing style: the table of contents (only when the flipbook
-// has one), thumbnails, previous and next, the page box, zoom and fullscreen, on one compact bar
+// has one), search (only when it has searchable text), thumbnails, previous and next, the page box, zoom and fullscreen, on one compact bar
 // centred below the book. nav comes from the viewing style
 // (its own page model); controls from FlipbookReader (zoom, thumbnail panel, fullscreen, and the
 // mode that says which controls fit). color: the flipbook's button colour for the arrows. tone:
@@ -89,12 +90,12 @@ function PageBox({ label, firstPage, pageCount, onGoToPage }) {
 // floating call to action on narrow screens.
 export default function ReaderNav({ nav, controls, color, tone = null, navInset = 0 }) {
   const { label, firstPage, pageCount, onPrevious, onNext, atStart, atEnd, onGoToPage } = nav
-  const { mode, zoom, onZoomIn, onZoomOut, onFit, thumbnailsOpen, onToggleThumbnails, contentsOpen, onToggleContents, fullscreen } = controls
+  const { mode, buttons, zoom, onZoomIn, onZoomOut, onFit, thumbnailsOpen, onToggleThumbnails, contentsOpen, onToggleContents, searchOpen, onToggleSearch, fullscreen } =
+    controls
   const zoomed = zoom > 1
   const maxZoom = zoom >= ZOOM_LEVELS.at(-1)
-  // On the narrowest stages the Contents button takes the fullscreen button's place, so the bar
-  // still fits 320px with touch-sized buttons.
-  const showFullscreen = fullscreen.supported && !(mode === 'minimal' && onToggleContents)
+  // Controls that do not fit the stage are left out (utils/readerControls.js, toolbarButtons).
+  const showFullscreen = fullscreen.supported && buttons.fullscreen
 
   return (
     <nav
@@ -110,6 +111,11 @@ export default function ReaderNav({ nav, controls, color, tone = null, navInset 
             <TableOfContents size={17} aria-hidden="true" />
           </ToolButton>
         )}
+        {onToggleSearch && (
+          <ToolButton label={searchOpen ? 'Close search' : 'Search'} onClick={onToggleSearch} pressed={searchOpen}>
+            <Search size={17} aria-hidden="true" />
+          </ToolButton>
+        )}
         <ToolButton label={thumbnailsOpen ? 'Close page overview' : 'Show all pages'} onClick={onToggleThumbnails} pressed={thumbnailsOpen}>
           <LayoutGrid size={17} aria-hidden="true" />
         </ToolButton>
@@ -117,7 +123,7 @@ export default function ReaderNav({ nav, controls, color, tone = null, navInset 
         <ToolButton label="Previous page" onClick={onPrevious} disabled={atStart} color={color}>
           <ChevronLeft size={20} aria-hidden="true" />
         </ToolButton>
-        <PageBox label={label} firstPage={firstPage} pageCount={pageCount} onGoToPage={onGoToPage} />
+        <PageBox label={label} firstPage={firstPage} pageCount={pageCount} onGoToPage={onGoToPage} showTotal={buttons.pageTotal} />
         <ToolButton label="Next page" onClick={onNext} disabled={atEnd} color={color}>
           <ChevronRight size={20} aria-hidden="true" />
         </ToolButton>

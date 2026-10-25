@@ -11,8 +11,9 @@ export class PdfRenderError extends Error {
   }
 }
 
-// Opens a PDF in its own worker thread and renders pages on request (the caller bounds how many
-// run at once, and so how many page images are held in memory). Always call close() when done.
+// Opens a PDF in its own worker thread and renders pages (with their text) or reads page text on
+// request (the caller bounds how many run at once, and so how many page images are held in
+// memory). Always call close() when done.
 export async function openPdf(pdfBuffer) {
   const worker = new Worker(WORKER_URL, { resourceLimits: { maxOldGenerationSizeMb: WORKER_MEMORY_LIMIT_MB } })
   const pending = new Map()
@@ -56,9 +57,11 @@ export async function openPdf(pdfBuffer) {
     return {
       pageCount,
       renderPage: async (pageNumber) => {
-        const { data: image, width, height } = await request({ type: 'render', pageNumber })
-        return { data: Buffer.from(image.buffer, image.byteOffset, image.byteLength), width, height }
+        const { data: image, width, height, text } = await request({ type: 'render', pageNumber })
+        return { data: Buffer.from(image.buffer, image.byteOffset, image.byteLength), width, height, text }
       },
+      // The page's text without rendering it (search for flipbooks converted before text search).
+      readText: async (pageNumber) => (await request({ type: 'text', pageNumber })).text,
       close,
     }
   } catch (error) {

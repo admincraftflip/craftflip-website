@@ -6,7 +6,8 @@ import SlideReader from './readers/SlideReader'
 import ReaderCta from './ReaderCta'
 import { PAGE_FLIP_SETTINGS, resolveViewerStyle } from '../utils/viewerStyles'
 import { ctaPlacement } from '../utils/bookLayout'
-import { contentsPanelLayout, toolbarMode, zoomIn, zoomOut } from '../utils/readerControls'
+import { contentsPanelLayout, toolbarButtons, zoomIn, zoomOut } from '../utils/readerControls'
+import { useTextSearch } from '../hooks/useTextSearch'
 
 // Shared by the private viewer (/flipbooks/:id) and the public viewer (/view/:slug). It never
 // talks to the API itself: each page passes loadPage, so this file has no Firebase or auth code.
@@ -30,29 +31,42 @@ export function ViewerMessage({ title, message, action }) {
 // of the stage in every style, and the book is fitted so the button never covers it.
 // contents: the table of contents ({ title, page } in page order, from readerOf); the toolbar shows
 // its button only when there is at least one section.
+// searchText(query, signal): the page's search request (text search, October 2026), resolving with
+// the response data; search: "ready" or "preparing" (searchAvailability), or null for no search.
 // tone: "light" or "dark" when a background is set behind the pages (null for the default).
 // fullscreenRef: the reader stage element, which the toolbar's fullscreen button enlarges.
 // onPagesShown(pages): called with the pages on screen after each move (public analytics, Milestone 10).
-export default function FlipbookReader({ pages, loadPage, stage, viewerStyle, controlColor, cta = null, contents = [], tone = null, fullscreenRef, onPagesShown }) {
+export default function FlipbookReader({ pages, loadPage, stage, viewerStyle, controlColor, cta = null, contents = [], searchText = null, search = null, tone = null, fullscreenRef, onPagesShown }) {
   const store = usePageImageStore(loadPage, pages.length)
   const style = resolveViewerStyle(viewerStyle)
-  const hasContents = contents.length > 0
-  const layout = ctaPlacement(stage, Boolean(cta), { hasContents })
   const fullscreen = useFullscreen(fullscreenRef)
+  // Which toolbar controls fit this stage (utils/readerControls.js).
+  const buttons = toolbarButtons(stage.width, {
+    hasContents: contents.length > 0,
+    hasSearch: Boolean(searchText && search),
+    pageCount: pages.length,
+    fullscreenSupported: fullscreen.supported,
+  })
+  const layout = ctaPlacement(stage, Boolean(cta), { hasContents: buttons.contents, hasSearch: buttons.search })
 
   // The toolbar state is shared by all styles: switching style keeps the zoom and the previews.
   const [zoom, setZoom] = useState(1)
-  // At most one panel at a time: "thumbnails" (the page overview), "contents" or null.
+  // At most one panel at a time: "thumbnails" (the page overview), "contents", "search" or null.
   const [panel, setPanel] = useState(null)
   const [thumbnailsUsed, setThumbnailsUsed] = useState(false)
   const thumbnails = useThumbnailStore(loadPage, thumbnailsUsed)
   const closeThumbnails = useCallback(() => setPanel((open) => (open === 'thumbnails' ? null : open)), [])
   const closeContents = useCallback(() => setPanel((open) => (open === 'contents' ? null : open)), [])
+  const closeSearch = useCallback(() => setPanel((open) => (open === 'search' ? null : open)), [])
   const thumbnailsOpen = panel === 'thumbnails'
-  const contentsOpen = hasContents && panel === 'contents'
+  const contentsOpen = buttons.contents && panel === 'contents'
+  const searchOpen = buttons.search && panel === 'search'
+  const textSearch = useTextSearch(buttons.search ? searchText : null, pages.length)
+  const panelLayout = contentsPanelLayout(stage.width)
 
   const controls = {
-    mode: toolbarMode(stage.width),
+    mode: buttons.mode,
+    buttons,
     zoom,
     onZoomIn: () => setZoom(zoomIn),
     onZoomOut: () => setZoom(zoomOut),
@@ -65,9 +79,15 @@ export default function FlipbookReader({ pages, loadPage, stage, viewerStyle, co
     onCloseThumbnails: closeThumbnails,
     contents,
     contentsOpen,
-    contentsLayout: contentsPanelLayout(stage.width),
-    onToggleContents: hasContents ? () => setPanel((open) => (open === 'contents' ? null : 'contents')) : null,
+    contentsLayout: panelLayout,
+    onToggleContents: buttons.contents ? () => setPanel((open) => (open === 'contents' ? null : 'contents')) : null,
     onCloseContents: closeContents,
+    search: textSearch,
+    searchAvailability: search,
+    searchOpen,
+    searchLayout: panelLayout,
+    onToggleSearch: buttons.search ? () => setPanel((open) => (open === 'search' ? null : 'search')) : null,
+    onCloseSearch: closeSearch,
     thumbnails,
     pageStore: store,
     fullscreen,
@@ -84,7 +104,7 @@ export default function FlipbookReader({ pages, loadPage, stage, viewerStyle, co
   return (
     <>
       {reader}
-      {cta && !thumbnailsOpen && !contentsOpen && <ReaderCta cta={cta} color={controlColor} placement={layout.placement} />}
+      {cta && !thumbnailsOpen && !contentsOpen && !searchOpen && <ReaderCta cta={cta} color={controlColor} placement={layout.placement} />}
     </>
   )
 }

@@ -8,6 +8,8 @@ import { deleteFlipbookAssets, deletePdf, fetchPageImage, pdfPublicId, uploadPdf
 import { getCloudinary } from '../config/cloudinary.js'
 import { VIEWER_STYLES, isViewerStyle } from '../utils/viewerStyles.js'
 import { contentsMaxPage, parseReaderUpdate } from '../utils/readerSettings.js'
+import { ensureSearchText, forgetFlipbookText, needsSearchText, searchFlipbook } from '../utils/textSearch.js'
+import FlipbookText from '../models/FlipbookText.js'
 import { conversionQueueIsFull, queueConversion } from '../utils/pdfConversion.js'
 import { maxPagesForPlan, maxPublishedForPlan } from '../utils/planLimits.js'
 import { PublishError, changeSlug, isSlugRetired, publishFlipbook, publishedCountFor, unpublishFlipbook } from '../utils/publishing.js'
@@ -181,8 +183,23 @@ export async function getFlipbookPages(req, res) {
     return res.status(404).json({ success: false, message: 'Flipbook not found.' })
   }
   const pages = flipbook.status === 'ready' ? flipbook.pages.map(({ pageNumber, width, height }) => ({ pageNumber, width, height })) : []
+  // A flipbook converted before text search gets its page text read in the background.
+  if (needsSearchText(flipbook)) ensureSearchText(flipbook._id)
   pages.sort((first, second) => first.pageNumber - second.pageNumber)
   res.json({ success: true, data: { flipbook: flipbook.toSummary(), pages } })
+}
+
+// Text search in the owner's preview (October 2026): the same results as the public search, for
+// the owner's own Ready flipbook, published or not.
+export async function searchOwnFlipbook(req, res) {
+  const { id } = req.params
+  const flipbook = mongoose.isValidObjectId(id)
+    ? await Flipbook.findOne({ _id: id, ownerId: req.user._id, status: 'ready' }).select('status textSearch conversion.attemptId')
+    : null
+  if (!flipbook) return res.status(404).json({ success: false, message: 'Flipbook not found.' })
+  const search = await searchFlipbook(flipbook, req.query.q)
+  if (search.error) return res.status(400).json({ success: false, message: search.error })
+  res.json({ success: true, data: search })
 }
 
 // Sends one page image to its owner. Page images are private (authenticated delivery), so the
@@ -272,6 +289,14 @@ export async function deleteFlipbook(req, res) {
     await ViewSession.deleteMany({ flipbookId: flipbook._id, ownerId: req.user._id })
   } catch (error) {
     console.error(`Flipbook ${flipbook._id} delete: analytics cleanup failed (${error.name})`)
+  }
+  // Its search text too (text search, October 2026); a failure leaves text no search can reach,
+  // because every search first finds the flipbook.
+  forgetFlipbookText(flipbook._id)
+  try {
+    await FlipbookText.deleteMany({ flipbookId: flipbook._id, ownerId: req.user._id })
+  } catch (error) {
+    console.error(`Flipbook ${flipbook._id} delete: search text cleanup failed (${error.name})`)
   }
   res.json({ success: true, data: { id: flipbook._id } })
 }

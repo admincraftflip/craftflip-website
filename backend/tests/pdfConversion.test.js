@@ -33,6 +33,18 @@ mock.module(moduleUrl('../models/Flipbook.js'), { defaultExport: flipbookModel }
 const socialImage = { ensureSocialImage: mock.fn(async () => 'created') }
 mock.module(moduleUrl('../utils/socialImage.js'), { namedExports: { ensureSocialImage: (...args) => socialImage.ensureSocialImage(...args) } })
 
+// Storing the text is covered in textSearch.test.js; here only what the conversion hands over.
+const textSearch = {
+  saveFlipbookText: mock.fn(async (flipbook, attemptId, texts) => (texts.some(Boolean) ? 'ready' : 'empty')),
+  removeFlipbookText: mock.fn(async () => {}),
+}
+mock.module(moduleUrl('../utils/textSearch.js'), {
+  namedExports: {
+    saveFlipbookText: (...args) => textSearch.saveFlipbookText(...args),
+    removeFlipbookText: (...args) => textSearch.removeFlipbookText(...args),
+  },
+})
+
 const { runConversion, recoverInterruptedConversions, CONVERSION_MESSAGES } = await import('../utils/pdfConversion.js')
 
 function claimedFlipbook() {
@@ -54,7 +66,7 @@ function lastUpdate() {
 beforeEach(() => {
   state.storedPdf = makePdf(3)
   state.updateMatched = 1
-  for (const fn of [...Object.values(storage), ...Object.values(flipbookModel), socialImage.ensureSocialImage]) fn.mock.resetCalls()
+  for (const fn of [...Object.values(storage), ...Object.values(flipbookModel), socialImage.ensureSocialImage, ...Object.values(textSearch)]) fn.mock.resetCalls()
 })
 
 test('converts every page in order and records them on the flipbook', async () => {
@@ -345,4 +357,32 @@ test('a job that has to wait in the queue drops the uploaded bytes and downloads
   }
   assert.equal(storage.downloadPdf.mock.callCount(), 1)
   assert.equal(storage.downloadPdf.mock.calls[0].arguments[0], 'second-original')
+})
+
+test('the page text read while rendering is stored for search before the flipbook becomes Ready', async () => {
+  const flipbook = claimedFlipbook()
+  await runConversion(flipbook, { maxPages: 100 })
+  const [savedFor, attemptId, texts] = textSearch.saveFlipbookText.mock.calls[0].arguments
+  assert.equal(savedFor, flipbook)
+  assert.equal(attemptId, 'attempt-1')
+  assert.deepEqual(texts, ['Page 1', 'Page 2', 'Page 3'])
+  const { fields } = lastUpdate()
+  assert.deepEqual(fields.textSearch, { status: 'ready', attemptId: 'attempt-1', attempts: 0, leaseExpiresAt: null })
+  assert.equal(fields.pages[0].text, undefined, 'the text is not stored in the page list')
+  assert.equal(textSearch.removeFlipbookText.mock.callCount(), 0)
+})
+
+test('if the text cannot be stored the flipbook is still Ready, and a superseded attempt removes its text', async () => {
+  textSearch.saveFlipbookText.mock.mockImplementationOnce(async () => {
+    throw new Error('database unavailable')
+  })
+  await runConversion(claimedFlipbook(), { maxPages: 100 })
+  let { fields } = lastUpdate()
+  assert.equal(fields.status, 'ready')
+  assert.deepEqual(fields.textSearch, { status: null, attemptId: null, attempts: 0, leaseExpiresAt: null })
+
+  state.updateMatched = 0
+  const superseded = claimedFlipbook()
+  await runConversion(superseded, { maxPages: 100 })
+  assert.deepEqual(textSearch.removeFlipbookText.mock.calls[0].arguments, [superseded._id, 'attempt-1'])
 })

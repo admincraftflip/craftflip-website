@@ -191,3 +191,21 @@ test('a flipbook starts without a social preview image, and toSummary never expo
   assert.equal(withImage.validateSync(), undefined)
   assert.doesNotMatch(JSON.stringify(withImage.toSummary()), /social|og-1|craftflip\/users/)
 })
+
+test('text search state defaults to not read, and the summary sends only the search status', () => {
+  const fields = {
+    ownerId: new mongoose.Types.ObjectId(),
+    title: 'Brochure',
+    slug: 'brochure-ab12',
+    originalFile: { filename: 'brochure.pdf', sizeBytes: 1234 },
+    pdfAsset: { publicId: 'p', version: 1, resourceType: 'raw', deliveryType: 'authenticated' },
+  }
+  const fresh = new Flipbook(fields)
+  assert.deepEqual(fresh.textSearch.toObject(), { status: null, attemptId: null, attempts: 0, leaseExpiresAt: null })
+  assert.equal(fresh.toSummary().search, null)
+  assert.equal(new Flipbook({ ...fields, status: 'ready', pageCount: 2 }).toSummary().search, 'preparing')
+  const ready = new Flipbook({ ...fields, status: 'ready', pageCount: 2, textSearch: { status: 'ready', attemptId: 'secret-attempt' } })
+  assert.equal(ready.toSummary().search, 'ready')
+  assert.doesNotMatch(JSON.stringify(ready.toSummary()), /secret-attempt/)
+  assert.ok(new Flipbook({ ...fields, textSearch: { status: 'indexed' } }).validateSync()?.errors?.['textSearch.status'])
+})

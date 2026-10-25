@@ -98,6 +98,24 @@ mock.module(moduleUrl('../utils/publishing.js'), {
 const socialImage = { ensureSocialImage: mock.fn(async () => 'created') }
 mock.module(moduleUrl('../utils/socialImage.js'), { namedExports: { ensureSocialImage: (...args) => socialImage.ensureSocialImage(...args) } })
 
+// Text search itself is covered in textSearch.test.js; here only how the routes use it.
+const textSearch = {
+  ensureSearchText: mock.fn(async () => 'ready'),
+  needsSearchText: mock.fn(() => false),
+  searchFlipbook: mock.fn(async () => ({ status: 'ready', results: [], total: 0, limited: false })),
+  forgetFlipbookText: mock.fn(),
+}
+mock.module(moduleUrl('../utils/textSearch.js'), {
+  namedExports: {
+    ensureSearchText: (...args) => textSearch.ensureSearchText(...args),
+    needsSearchText: (...args) => textSearch.needsSearchText(...args),
+    searchFlipbook: (...args) => textSearch.searchFlipbook(...args),
+    forgetFlipbookText: (...args) => textSearch.forgetFlipbookText(...args),
+  },
+})
+const flipbookTextModel = { deleteMany: mock.fn(async () => ({ deletedCount: 1 })) }
+mock.module(moduleUrl('../models/FlipbookText.js'), { defaultExport: flipbookTextModel })
+
 const { default: flipbookRoutes } = await import('../routes/flipbookRoutes.js')
 const { notFound, errorHandler } = await import('../middleware/errorHandler.js')
 
@@ -130,6 +148,8 @@ beforeEach(() => {
   publishing.unpublishFlipbook.mock.resetCalls()
   publishing.changeSlug.mock.resetCalls()
   socialImage.ensureSocialImage.mock.resetCalls()
+  for (const fn of Object.values(textSearch)) fn.mock.resetCalls()
+  flipbookTextModel.deleteMany.mock.resetCalls()
   flipbookModel.findOneAndUpdate.mock.resetCalls()
   storage.uploadPdf.mock.resetCalls()
   storage.deletePdf.mock.resetCalls()
@@ -485,6 +505,21 @@ test("the owner deletes their flipbook: files first, then the record", async () 
   const [analyticsFilter] = viewSessionModel.deleteMany.mock.calls.at(-1).arguments
   assert.equal(String(analyticsFilter.flipbookId), String(claimed._id))
   assert.equal(analyticsFilter.ownerId.toString(), userId)
+  // And its search text, from the cache and the database.
+  assert.equal(String(textSearch.forgetFlipbookText.mock.calls[0].arguments[0]), String(claimed._id))
+  const [textFilter] = flipbookTextModel.deleteMany.mock.calls.at(-1).arguments
+  assert.equal(String(textFilter.flipbookId), String(claimed._id))
+  assert.equal(textFilter.ownerId.toString(), userId)
+})
+
+test('a failed search text cleanup never fails the deletion', async () => {
+  const userId = newUserId()
+  const flipbookId = newUserId()
+  flipbookModel.findOneAndUpdate.mock.mockImplementationOnce(async () => claimedForDeletion(userId, flipbookId))
+  flipbookTextModel.deleteMany.mock.mockImplementationOnce(async () => {
+    throw new Error('database unavailable')
+  })
+  assert.equal((await deleteRequest(userId, flipbookId)).status, 200)
 })
 
 test('a failed analytics cleanup never fails the deletion', async () => {
@@ -1214,4 +1249,46 @@ test("the owner downloads their own original whatever the reader setting; others
   const other = await fetch(`${server.url}/api/flipbooks/${newUserId()}/original`, { headers: { 'x-test-user': newUserId() } })
   assert.equal(other.status, 404)
   assert.equal(storage.openOriginalPdfStream.mock.callCount(), 1)
+})
+
+// ---------- Text search (October 2026) ----------
+
+function searchRequest(userId, flipbookId, query) {
+  return fetch(`${server.url}/api/flipbooks/${flipbookId}/search?q=${encodeURIComponent(query)}`, { headers: { 'x-test-user': userId } })
+}
+
+test('the owner searches their own Ready flipbook; others and unconverted ones are a 404', async () => {
+  const userId = newUserId()
+  const flipbookId = newUserId()
+  const stored = { _id: flipbookId, status: 'ready', textSearch: { status: 'ready', attemptId: 'a' } }
+  flipbookModel.findOne.mock.mockImplementationOnce((filter) => ({ select: async () => (String(filter.ownerId) === userId && filter.status === 'ready' ? stored : null) }))
+  const results = [{ page: 3, before: '', match: 'Pool', after: ' and spa' }]
+  textSearch.searchFlipbook.mock.mockImplementationOnce(async () => ({ status: 'ready', results, total: 1, limited: false }))
+  const response = await searchRequest(userId, flipbookId, 'pool')
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { success: true, data: { status: 'ready', results, total: 1, limited: false } })
+  assert.deepEqual(textSearch.searchFlipbook.mock.calls[0].arguments, [stored, 'pool'])
+
+  assert.equal((await searchRequest(newUserId(), flipbookId, 'pool')).status, 404)
+  assert.equal((await searchRequest(userId, 'not-an-id', 'pool')).status, 404)
+  assert.equal(textSearch.searchFlipbook.mock.callCount(), 1)
+})
+
+test('a search that is too short is refused with 400', async () => {
+  const userId = newUserId()
+  flipbookModel.findOne.mock.mockImplementationOnce(() => ({ select: async () => ({ status: 'ready' }) }))
+  textSearch.searchFlipbook.mock.mockImplementationOnce(async () => ({ error: 'Type at least 2 characters to search.' }))
+  const response = await searchRequest(userId, newUserId(), 'p')
+  assert.equal(response.status, 400)
+  assert.deepEqual(await response.json(), { success: false, message: 'Type at least 2 characters to search.' })
+})
+
+test("opening the preview of an older flipbook starts reading its text for search", async () => {
+  const userId = newUserId()
+  const flipbookId = newUserId()
+  const stored = { _id: flipbookId, ...storedFlipbook('ready') }
+  flipbookModel.findOne.mock.mockImplementationOnce(() => ({ select: async () => stored }))
+  textSearch.needsSearchText.mock.mockImplementationOnce(() => true)
+  assert.equal((await pagesRequest(userId, flipbookId)).status, 200)
+  assert.equal(textSearch.ensureSearchText.mock.calls[0].arguments[0], flipbookId)
 })

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose'
 import { DEFAULT_VIEWER_STYLE, VIEWER_STYLES, resolveViewerStyle } from '../utils/viewerStyles.js'
+import { searchStatus } from '../utils/pageText.js'
 import {
   BACKGROUND_KINDS,
   BACKGROUND_PRESETS,
@@ -142,6 +143,16 @@ const flipbookSchema = new mongoose.Schema(
       attempts: { type: Number, default: 0 },
       leaseExpiresAt: { type: Date, default: null },
     },
+    // Text search (October 2026): whether the page text is stored (FlipbookText, for the conversion
+    // attempt in attemptId). status null: not read yet (flipbooks converted before text search get
+    // it read from the stored PDF on first use, utils/textSearch.js); "ready": stored; "empty": the
+    // PDF has no text. attempts and leaseExpiresAt claim and cap that later reading.
+    textSearch: {
+      status: { type: String, enum: ['ready', 'empty', null], default: null },
+      attemptId: { type: String, default: null },
+      attempts: { type: Number, default: 0 },
+      leaseExpiresAt: { type: Date, default: null },
+    },
     publishedAt: { type: Date, default: null },
     firstPublishedAt: { type: Date, default: null },
     unpublishedAt: { type: Date, default: null },
@@ -194,6 +205,7 @@ flipbookSchema.methods.toSummary = function toSummary() {
     hasBeenPublished: Boolean(this.firstPublishedAt),
     viewerStyle: resolveViewerStyle(this.viewerStyle),
     reader: ownerReaderView(this.reader),
+    search: searchStatus(this),
     publishedAt: this.status === 'ready' && this.isPublished ? this.publishedAt : null,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt,

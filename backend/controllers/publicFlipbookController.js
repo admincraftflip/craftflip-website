@@ -10,6 +10,8 @@ import { MAX_SLUG_LENGTH, SLUG_PATTERN } from '../utils/slug.js'
 import ViewSession from '../models/ViewSession.js'
 import { deviceTypeFrom, isLikelyBot, parseActivity, sessionUpsert } from '../utils/analytics.js'
 import { ensureSocialImage, needsSocialImage } from '../utils/socialImage.js'
+import { searchStatus } from '../utils/pageText.js'
+import { ensureSearchText, needsSearchText, searchFlipbook } from '../utils/textSearch.js'
 
 // Slugs are lowercase words and digits joined by hyphens (utils/slug.js).
 // Browsers may keep a page image for five minutes; "private" forbids shared caches and CDNs.
@@ -39,12 +41,14 @@ export async function getPublicFlipbook(req, res) {
   if (!isValidSlug(slug)) return res.status(404).json(NOT_FOUND)
 
   const flipbook = await Flipbook.findOne(publishedFilter(slug)).select(
-    'slug title viewerStyle reader pageCount pages.pageNumber pages.width pages.height socialImage socialImageGeneration'
+    'slug title viewerStyle reader pageCount pages.pageNumber pages.width pages.height socialImage socialImageGeneration status textSearch'
   )
   if (!flipbook) return res.status(404).json(NOT_FOUND)
   // A published flipbook without a social preview image (converted before Milestone 13, or an
   // earlier attempt failed) gets one in the background; this response goes out without it.
   if (needsSocialImage(flipbook)) ensureSocialImage(flipbook._id)
+  // Likewise its page text for search (flipbooks converted before text search, October 2026).
+  if (needsSearchText(flipbook)) ensureSearchText(flipbook._id)
 
   const pages = flipbook.pages
     .map(({ pageNumber, width, height }) => ({ pageNumber, width, height }))
@@ -57,8 +61,21 @@ export async function getPublicFlipbook(req, res) {
     pageCount: pages.length,
     pages,
     socialImage: publicSocialImageView(flipbook.socialImage),
+    search: searchStatus(flipbook),
   }
   res.json({ success: true, data: { flipbook: publicFlipbook } })
+}
+
+// Text search (October 2026): the matches for ?q= in a published flipbook, as page numbers and
+// short snippets (utils/pageText.js); the stored text itself is never sent.
+export async function searchPublicFlipbook(req, res) {
+  const { slug } = req.params
+  if (!isValidSlug(slug)) return res.status(404).json(NOT_FOUND)
+  const flipbook = await Flipbook.findOne(publishedFilter(slug)).select('status textSearch conversion.attemptId')
+  if (!flipbook) return res.status(404).json(NOT_FOUND)
+  const search = await searchFlipbook(flipbook, req.query.q)
+  if (search.error) return res.status(400).json({ success: false, message: search.error })
+  res.json({ success: true, data: search })
 }
 
 // Link previews (Milestone 13) need only the size and a revision for the image address.
