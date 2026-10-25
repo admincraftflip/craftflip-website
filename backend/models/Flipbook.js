@@ -1,6 +1,13 @@
 import mongoose from 'mongoose'
 import { DEFAULT_VIEWER_STYLE, VIEWER_STYLES, resolveViewerStyle } from '../utils/viewerStyles.js'
-import { BACKGROUND_KINDS, BACKGROUND_PRESETS, MAX_CTA_LABEL_LENGTH, ownerReaderView } from '../utils/readerSettings.js'
+import {
+  BACKGROUND_KINDS,
+  BACKGROUND_PRESETS,
+  MAX_CONTENTS_ENTRIES,
+  MAX_CONTENTS_TITLE_LENGTH,
+  MAX_CTA_LABEL_LENGTH,
+  ownerReaderView,
+} from '../utils/readerSettings.js'
 
 export const FLIPBOOK_STATUSES = ['uploaded', 'processing', 'ready', 'failed', 'deleting']
 export const MAX_TITLE_LENGTH = 120
@@ -29,6 +36,15 @@ const logoSchema = new mongoose.Schema(
     width: { type: Number, required: true },
     height: { type: Number, required: true },
     uploadedAt: { type: Date, required: true },
+  },
+  { _id: false }
+)
+
+// One section of the reader's table of contents: a title and the page it starts on.
+const contentsEntrySchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true, maxlength: MAX_CONTENTS_TITLE_LENGTH },
+    page: { type: Number, required: true, min: 1, validate: { validator: Number.isInteger, message: 'Pages are whole numbers.' } },
   },
   { _id: false }
 )
@@ -111,6 +127,12 @@ const flipbookSchema = new mongoose.Schema(
         url: { type: String, default: '', maxlength: 2048 },
       },
       allowDownload: { type: Boolean, default: false },
+      // Table of contents (October 2026): a flat list sorted by page, every page within the book.
+      contents: {
+        type: [contentsEntrySchema],
+        default: [],
+        validate: { validator: (list) => list.length <= MAX_CONTENTS_ENTRIES, message: 'Too many sections.' },
+      },
     },
     // Made once per converted flipbook (utils/socialImage.js); null until then or when it could not
     // be made. socialImageGeneration claims the work (lease) and caps the attempts. Records from

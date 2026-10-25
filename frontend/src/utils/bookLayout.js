@@ -61,9 +61,13 @@ export const TOOLBAR_MAX_WIDTH_PX = 440
 export const CTA_MAX_WIDTH_PX = 240
 // Half the toolbar, the button and two 12px margins plus a gap fit in half the stage.
 export const CTA_BESIDE_NAV_MIN_WIDTH = 980
+// The toolbar's Contents button (44px on touch screens plus its gap), shown only for flipbooks
+// with a table of contents; the button then needs that much more room to sit beside the toolbar.
+export const CONTENTS_BUTTON_PX = 46
 
-export function ctaPlacement(stage, hasCta) {
+export function ctaPlacement(stage, hasCta, { hasContents = false } = {}) {
   if (!hasCta) return { stage, navInset: 0, placement: null }
-  if (stage.width >= CTA_BESIDE_NAV_MIN_WIDTH) return { stage, navInset: 0, placement: 'beside-nav' }
+  const besideMinWidth = CTA_BESIDE_NAV_MIN_WIDTH + (hasContents ? CONTENTS_BUTTON_PX : 0)
+  if (stage.width >= besideMinWidth) return { stage, navInset: 0, placement: 'beside-nav' }
   return { stage: { width: stage.width, height: Math.max(0, stage.height - CTA_STRIP_PX) }, navInset: CTA_STRIP_PX, placement: 'below-nav' }
 }

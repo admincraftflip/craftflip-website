@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, LayoutGrid, Maximize, Minimize, ZoomIn, ZoomOut } from 'lucide-react'
+import { ChevronLeft, ChevronRight, LayoutGrid, Maximize, Minimize, TableOfContents, ZoomIn, ZoomOut } from 'lucide-react'
 import { ZOOM_LEVELS, parsePageInput } from '../utils/readerControls'
 
 const NAV_PADDING_BOTTOM_PX = 16
@@ -80,17 +80,21 @@ function PageBox({ label, firstPage, pageCount, onGoToPage }) {
   )
 }
 
-// The reader toolbar, shared by every viewing style: thumbnails, previous and next, the page box,
-// zoom and fullscreen, on one compact bar centred below the book. nav comes from the viewing style
+// The reader toolbar, shared by every viewing style: the table of contents (only when the flipbook
+// has one), thumbnails, previous and next, the page box, zoom and fullscreen, on one compact bar
+// centred below the book. nav comes from the viewing style
 // (its own page model); controls from FlipbookReader (zoom, thumbnail panel, fullscreen, and the
 // mode that says which controls fit). color: the flipbook's button colour for the arrows. tone:
 // set when a background is painted behind the reader. navInset: extra room kept below for the
 // floating call to action on narrow screens.
 export default function ReaderNav({ nav, controls, color, tone = null, navInset = 0 }) {
   const { label, firstPage, pageCount, onPrevious, onNext, atStart, atEnd, onGoToPage } = nav
-  const { mode, zoom, onZoomIn, onZoomOut, onFit, thumbnailsOpen, onToggleThumbnails, fullscreen } = controls
+  const { mode, zoom, onZoomIn, onZoomOut, onFit, thumbnailsOpen, onToggleThumbnails, contentsOpen, onToggleContents, fullscreen } = controls
   const zoomed = zoom > 1
   const maxZoom = zoom >= ZOOM_LEVELS.at(-1)
+  // On the narrowest stages the Contents button takes the fullscreen button's place, so the bar
+  // still fits 320px with touch-sized buttons.
+  const showFullscreen = fullscreen.supported && !(mode === 'minimal' && onToggleContents)
 
   return (
     <nav
@@ -101,6 +105,11 @@ export default function ReaderNav({ nav, controls, color, tone = null, navInset 
       data-toolbar-mode={mode}
     >
       <div className={`flex max-w-full items-center gap-0.5 rounded-full p-1 ${tone ? 'bg-white/90 shadow-sm backdrop-blur-sm' : 'bg-white/70 ring-1 ring-stone-200'}`}>
+        {onToggleContents && (
+          <ToolButton label={contentsOpen ? 'Close contents' : 'Contents'} onClick={onToggleContents} pressed={contentsOpen}>
+            <TableOfContents size={17} aria-hidden="true" />
+          </ToolButton>
+        )}
         <ToolButton label={thumbnailsOpen ? 'Close page overview' : 'Show all pages'} onClick={onToggleThumbnails} pressed={thumbnailsOpen}>
           <LayoutGrid size={17} aria-hidden="true" />
         </ToolButton>
@@ -136,7 +145,7 @@ export default function ReaderNav({ nav, controls, color, tone = null, navInset 
               <ZoomIn size={17} aria-hidden="true" />
             </ToolButton>
           ))}
-        {fullscreen.supported && (
+        {showFullscreen && (
           <>
             {mode === 'full' && <Divider />}
             <ToolButton label={fullscreen.active ? 'Exit fullscreen' : 'Fullscreen'} onClick={fullscreen.toggle} pressed={fullscreen.active}>

@@ -6,6 +6,8 @@ import { getApiErrorMessage } from './apiErrors.js'
 
 export const MAX_CTA_LABEL_LENGTH = 40
 export const MAX_BACKGROUND_BYTES = 8 * 1024 * 1024
+export const MAX_CONTENTS_ENTRIES = 50
+export const MAX_CONTENTS_TITLE_LENGTH = 80
 const HEX_COLOR = /^#[0-9a-f]{6}$/i
 
 // Temporary placeholder presets (CC0 images, see public/reader-backgrounds/CREDITS.md), to be
@@ -25,6 +27,7 @@ export const DEFAULT_READER = {
   logo: null,
   cta: { enabled: false, label: '', url: '' },
   allowDownload: false,
+  contents: [],
 }
 
 function presetById(id) {
@@ -53,6 +56,17 @@ function backgroundOf(background) {
   return { kind, color, preset, image }
 }
 
+// The table of contents, from either API: { title, page } sections in page order. Anything
+// malformed, and sections past the last page when the page count is known, are left out.
+function contentsOf(contents, pageCount) {
+  if (!Array.isArray(contents)) return []
+  const lastPage = Number.isInteger(pageCount) && pageCount > 0 ? pageCount : Infinity
+  return contents
+    .filter((entry) => typeof entry?.title === 'string' && entry.title.trim() && Number.isInteger(entry.page) && entry.page >= 1 && entry.page <= lastPage)
+    .map((entry) => ({ title: entry.title, page: entry.page }))
+    .sort((first, second) => first.page - second.page)
+}
+
 // Settings with defaults filled in. The owner API sends cta as { enabled, label, url }; the public
 // API sends { label, url } only for a button that is shown (and null otherwise), so a cta without
 // "enabled" is a shown one. accentColor from before the background is ignored.
@@ -65,6 +79,7 @@ export function readerOf(flipbook) {
     logo: reader.logo ?? null,
     cta,
     allowDownload: reader.allowDownload === true,
+    contents: contentsOf(reader.contents, flipbook?.pageCount),
   }
 }
 
@@ -132,8 +147,36 @@ export function ctaToShow(reader) {
   return { label: cta.label, url: cta.url.trim() }
 }
 
+// Control characters become spaces and runs of spaces one, as on the server.
+function tidyTitle(value) {
+  const text = Array.from(String(value ?? ''), (character) => (character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127 ? ' ' : character)).join('')
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+// The contents rows of the settings form ({ title, page } with page as typed), checked before
+// saving against the book's page count. Returns a message, or null.
+export function contentsFormProblem(rows, pageCount) {
+  if (rows.length === 0) return null
+  if (rows.length > MAX_CONTENTS_ENTRIES) return `The contents can have at most ${MAX_CONTENTS_ENTRIES} sections.`
+  if (!pageCount) return 'Contents can be added once the flipbook is ready.'
+  for (const [index, row] of rows.entries()) {
+    const title = tidyTitle(row.title)
+    if (!title) return `Section ${index + 1} needs a title.`
+    if (title.length > MAX_CONTENTS_TITLE_LENGTH) return `Section titles can be at most ${MAX_CONTENTS_TITLE_LENGTH} characters.`
+    const page = String(row.page ?? '').trim()
+    if (!/^\d{1,4}$/.test(page) || Number(page) < 1 || Number(page) > pageCount) return `Section ${index + 1} needs a page from 1 to ${pageCount}.`
+  }
+  return null
+}
+
+// The contents rows as the API takes them: tidied titles, page numbers, in page order.
+export function contentsUpdate(rows) {
+  return rows.map((row) => ({ title: tidyTitle(row.title), page: Number(String(row.page).trim()) })).sort((first, second) => first.page - second.page)
+}
+
 // The settings form, checked before saving. Returns a message, or null when it can be saved.
-export function readerFormProblem(form) {
+// pageCount: the book's page count, for the contents.
+export function readerFormProblem(form, pageCount = null) {
   if (form.primaryColor !== null && !isHexColor(form.primaryColor)) return 'The button colour must be like #1f4e79.'
   const { background } = form
   if (background.color !== null && !isHexColor(background.color)) return 'The background colour must be like #1f4e79.'
@@ -143,7 +186,7 @@ export function readerFormProblem(form) {
   if (label.length > MAX_CTA_LABEL_LENGTH) return `Button labels can be at most ${MAX_CTA_LABEL_LENGTH} characters.`
   if (form.cta.url.trim() && !isSafeWebUrl(form.cta.url)) return 'The button link must be a full web address starting with https://.'
   if (form.cta.enabled && (!label || !form.cta.url.trim())) return 'To show the button, give it a label and a link.'
-  return null
+  return form.contents ? contentsFormProblem(form.contents, pageCount) : null
 }
 
 // The PATCH body for the settings (the logo and background image are uploaded separately).
@@ -155,6 +198,7 @@ export function readerUpdate(form) {
       background: { kind: background.kind, color: background.color ? background.color.toLowerCase() : null, preset: background.preset ?? null },
       cta: { enabled: form.cta.enabled, label: form.cta.label.trim(), url: form.cta.url.trim() },
       allowDownload: form.allowDownload,
+      ...(form.contents && { contents: contentsUpdate(form.contents) }),
     },
   }
 }

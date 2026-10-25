@@ -53,7 +53,7 @@ export async function getPublicFlipbook(req, res) {
     slug: flipbook.slug,
     title: flipbook.title,
     viewerStyle: resolveViewerStyle(flipbook.viewerStyle),
-    reader: publicReaderView(flipbook.reader),
+    reader: publicReaderView(flipbook.reader, pages.length),
     pageCount: pages.length,
     pages,
     socialImage: publicSocialImageView(flipbook.socialImage),

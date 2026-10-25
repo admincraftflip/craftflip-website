@@ -104,7 +104,7 @@ test('a published flipbook returns only title, slug, viewing style, reader setti
         slug: STORED.slug,
         title: STORED.title,
         viewerStyle: 'luxury-flip',
-        reader: { primaryColor: null, background: { kind: 'default' }, logo: null, cta: null, allowDownload: false },
+        reader: { primaryColor: null, background: { kind: 'default' }, logo: null, cta: null, allowDownload: false, contents: [] },
         pageCount: 2,
         pages: [
           { pageNumber: 1, width: 1600, height: 2071 },
@@ -253,6 +253,11 @@ test('the public reader settings are filtered: no logo storage details, the butt
       logo: { publicId: 'craftflip/users/u/flipbooks/f/branding/logo-1', version: 4, format: 'webp', width: 320, height: 80, uploadedAt: new Date('2026-10-16T10:00:00Z') },
       cta: { enabled: true, label: 'Book a viewing', url: 'https://agency.example/book' },
       allowDownload: true,
+      contents: [
+        { title: 'Gallery', page: 2, _id: '6ad0f56609e219210a340820' },
+        { title: 'Welcome', page: 1 },
+        { title: 'Beyond the book', page: 3 },
+      ],
     },
   }
   const response = await metadataRequest(STORED.slug)
@@ -264,6 +269,10 @@ test('the public reader settings are filtered: no logo storage details, the butt
     logo: { width: 320, height: 80, revision: Date.parse('2026-10-16T10:00:00Z') },
     cta: { label: 'Book a viewing', url: 'https://agency.example/book' },
     allowDownload: true,
+    contents: [
+      { title: 'Welcome', page: 1 },
+      { title: 'Gallery', page: 2 },
+    ],
   })
 })
 

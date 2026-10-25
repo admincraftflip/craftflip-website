@@ -175,6 +175,7 @@ export default function FlipbookViewerPage() {
         viewerStyle={viewerStyle}
         controlColor={isHexColor(reader.primaryColor) ? reader.primaryColor : undefined}
         cta={ctaToShow(reader)}
+        contents={reader.contents}
         tone={background?.tone ?? null}
         fullscreenRef={stageRef}
       />

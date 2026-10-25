@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ownerReaderView, parseReaderUpdate, publicReaderView, safeWebUrl } from '../utils/readerSettings.js'
+import { contentsMaxPage, ownerReaderView, parseReaderUpdate, publicReaderView, safeWebUrl } from '../utils/readerSettings.js'
 
 test('colours are 6-digit hex values, lowercased, or null for the default', () => {
   assert.deepEqual(parseReaderUpdate({ primaryColor: '#1F4E79' }), { set: { 'reader.primaryColor': '#1f4e79' } })
@@ -62,7 +62,7 @@ test('reader updates accept only the allowed fields; the logo cannot be set here
 
 test('older flipbooks without settings read as the defaults: no colours, logo, button or download', () => {
   const background = { kind: 'default', color: null, preset: null, image: null }
-  const defaults = { primaryColor: null, background, logo: null, cta: { enabled: false, label: '', url: '' }, allowDownload: false }
+  const defaults = { primaryColor: null, background, logo: null, cta: { enabled: false, label: '', url: '' }, allowDownload: false, contents: [] }
   assert.deepEqual(ownerReaderView(undefined), defaults)
   assert.deepEqual(ownerReaderView({}), defaults)
   assert.deepEqual(publicReaderView(undefined), { ...defaults, background: { kind: 'default' }, cta: null })
@@ -133,4 +133,74 @@ test('an incomplete or unknown background reads as the default', () => {
   assert.doesNotMatch(JSON.stringify(owner), /publicId|craftflip\/users|version/)
   assert.deepEqual(publicReaderView({ background: { kind: 'color', color: '#1f4e79', preset: 'warm-wood', image } }).background, { kind: 'color', color: '#1f4e79' })
   assert.deepEqual(publicReaderView({ background: { kind: 'preset', preset: 'misty-forest', image } }).background, { kind: 'preset', preset: 'misty-forest', tone: 'dark' })
+})
+
+test('the contents are sent whole: titles tidied, whole page numbers, sorted by page', () => {
+  const { set } = parseReaderUpdate({
+    contents: [
+      { title: '  Floor \n plans ', page: 12 },
+      { title: 'Welcome', page: 1 },
+      { title: 'Amenities', page: 5 },
+      { title: 'Location', page: 5 },
+    ],
+  })
+  assert.deepEqual(set, {
+    'reader.contents': [
+      { title: 'Welcome', page: 1 },
+      { title: 'Amenities', page: 5 },
+      { title: 'Location', page: 5 },
+      { title: 'Floor plans', page: 12 },
+    ],
+  })
+  assert.equal(contentsMaxPage(set), 12)
+  assert.deepEqual(parseReaderUpdate({ contents: [] }), { set: { 'reader.contents': [] } })
+  assert.equal(contentsMaxPage({ 'reader.contents': [] }), 0)
+  assert.equal(contentsMaxPage({ 'reader.allowDownload': true }), 0)
+  const fifty = Array.from({ length: 50 }, (_, index) => ({ title: `Section ${index + 1}`, page: index + 1 }))
+  assert.equal(parseReaderUpdate({ contents: fifty }).set['reader.contents'].length, 50)
+  assert.equal(parseReaderUpdate({ contents: [{ title: 'x'.repeat(80), page: 1 }] }).set['reader.contents'][0].title.length, 80)
+})
+
+test('invalid contents are refused', () => {
+  const refused = [
+    null,
+    'Welcome',
+    { title: 'Welcome', page: 1 },
+    Array.from({ length: 51 }, (_, index) => ({ title: `Section ${index + 1}`, page: 1 })),
+    [{ title: '', page: 1 }],
+    [{ title: '  \n\t ', page: 1 }],
+    [{ title: 'x'.repeat(81), page: 1 }],
+    [{ title: 42, page: 1 }],
+    [{ title: 'Welcome', page: 0 }],
+    [{ title: 'Welcome', page: -3 }],
+    [{ title: 'Welcome', page: 1.5 }],
+    [{ title: 'Welcome', page: '2' }],
+    [{ title: 'Welcome', page: Number.NaN }],
+    [{ title: 'Welcome' }],
+    [{ page: 2 }],
+    [{ title: 'Welcome', page: 2, children: [] }],
+    [{ title: 'Welcome', page: 2, url: 'https://example.com' }],
+    ['Welcome'],
+    [null],
+  ]
+  for (const contents of refused) assert.ok(parseReaderUpdate({ contents }).error, JSON.stringify(contents))
+})
+
+test('owner and public views send the stored contents in page order, without malformed entries', () => {
+  const contents = [
+    { title: 'Floor plans', page: 12, _id: 'internal' },
+    { title: 'Welcome', page: 1 },
+    { title: '', page: 3 },
+    { title: 'Broken', page: 2.5 },
+    null,
+  ]
+  const expected = [
+    { title: 'Welcome', page: 1 },
+    { title: 'Floor plans', page: 12 },
+  ]
+  assert.deepEqual(ownerReaderView({ contents }).contents, expected)
+  assert.deepEqual(publicReaderView({ contents }).contents, expected)
+  // Never a section for a page the book does not have.
+  assert.deepEqual(publicReaderView({ contents }, 10).contents, [{ title: 'Welcome', page: 1 }])
+  assert.deepEqual(ownerReaderView({ contents: 'x' }).contents, [])
 })

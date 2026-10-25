@@ -193,7 +193,7 @@ No new packages. Without a key everything works and emails are skipped (the back
 - If delivery fails the backend logs `Email delivery failed (template: welcome): HTTP <status> <name>: <Resend's message>` (addresses, the subject and the key are replaced by `[address]`/`[redacted]`). Common 403s: `validation_error: The flip.thecraftaxis.com domain is not verified` (verify exactly that domain in Resend), `validation_error: You can only send testing emails to your own email address` (no verified domain on this account), `restricted_api_key` (key not active), and `cloudflare_1010` (blocked before Resend, usually the User-Agent header)
 
 ### Milestone 13 (social preview images)
-Status: the local implementation and automated checks are complete (backend 249, frontend 105 passing, lint and build pass). Not yet verified: a real preview image generated and stored in Cloudinary, the Vercel rewrite and function on a live deployment, and real previews in Facebook, LinkedIn, WhatsApp and X. The steps below cover them.
+Status: the local implementation and automated checks are complete (backend 249, frontend 105 passing, lint and build pass, at the time; 257 and 111 after the table of contents follow-up below). Not yet verified: a real preview image generated and stored in Cloudinary, the Vercel rewrite and function on a live deployment, and real previews in Facebook, LinkedIn, WhatsApp and X. The steps below cover them.
 
 No new accounts, packages or environment variables. The Vercel function reads the existing VITE_API_BASE_URL, which must be set for the Production environment in Vercel (it already is, for the build).
 - A converted flipbook gets a 1200x630 preview image of its first page a moment after it becomes Ready. Older flipbooks get one when published or when their public link is first opened
@@ -211,6 +211,12 @@ No new accounts, packages or environment variables. The Vercel function reads th
 - Deploy the backend (Railway) before or together with the frontend: until the backend has the image route, links get the small card without an image (safe, just plainer)
 - First check after deployment: `curl -A "facebookexternalhit/1.1" https://flip.thecraftaxis.com/view/<published slug>` must show og:title and og:image for that flipbook, and the og:image address must open the image. If only the generic CraftFlip tags appear, check in Vercel that VITE_API_BASE_URL is set for the Production environment (the function reads it at runtime) and look at the api/view function's logs; `curl` without -A must still return the normal app
 - After deployment: paste a published link into https://developers.facebook.com/tools/debug/ and https://www.linkedin.com/post-inspector/, and send it in a WhatsApp chat. Apps cache previews; the Facebook and LinkedIn tools refresh them
+
+### Table of contents (unnumbered follow-up, October 2026)
+No new accounts, packages, environment variables or migrations. Existing flipbooks simply have no contents.
+- Open a Ready flipbook and choose Customize. Under Reader settings, Contents: Add section, type a title (up to 80 characters) and the page it starts on, up to 50 sections. Save settings; the sections are sorted by page
+- The reader (preview, public link and embed, every style) then shows a Contents button at the left of the toolbar. It opens a list beside the book on wide screens and over the reader on phones; choosing a section goes to its page. Remove every section to hide the button
+- Owner check: add contents to one of your flipbooks, then try the button on a computer and a real phone (including a 320px-wide phone, where the Contents button replaces the fullscreen button)
 
 ---
 

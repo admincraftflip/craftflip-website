@@ -143,6 +143,7 @@ test('reader settings default to the previous behaviour and the schema refuses i
     logo: null,
     cta: { enabled: false, label: '', url: '' },
     allowDownload: false,
+    contents: [],
   })
   assert.ok(new Flipbook({ ...fields, reader: { primaryColor: 'red' } }).validateSync()?.errors?.['reader.primaryColor'])
   assert.ok(new Flipbook({ ...fields, reader: { background: { kind: 'video' } } }).validateSync()?.errors?.['reader.background.kind'])
@@ -157,6 +158,14 @@ test('reader settings default to the previous behaviour and the schema refuses i
   })
   assert.equal(withBackground.toSummary().reader.background.kind, 'image')
   assert.doesNotMatch(JSON.stringify(withBackground.toSummary()), /secret-bg/)
+  const withContents = new Flipbook({ ...fields, reader: { contents: [{ title: 'Floor plans', page: 9 }, { title: 'Welcome', page: 1 }] } })
+  assert.equal(withContents.validateSync(), undefined)
+  assert.deepEqual(withContents.toSummary().reader.contents, [{ title: 'Welcome', page: 1 }, { title: 'Floor plans', page: 9 }])
+  for (const entry of [{ title: '', page: 1 }, { title: 'x'.repeat(81), page: 1 }, { title: 'Welcome', page: 0 }, { title: 'Welcome', page: 1.5 }, { page: 2 }]) {
+    assert.ok(new Flipbook({ ...fields, reader: { contents: [entry] } }).validateSync(), JSON.stringify(entry))
+  }
+  const tooMany = Array.from({ length: 51 }, (_, index) => ({ title: 'Section', page: index + 1 }))
+  assert.ok(new Flipbook({ ...fields, reader: { contents: tooMany } }).validateSync()?.errors?.['reader.contents'])
   const withLogo = new Flipbook({ ...fields, reader: { logo: { publicId: 'secret-id', version: 1, format: 'webp', width: 5, height: 5, uploadedAt: new Date() } } })
   assert.doesNotMatch(JSON.stringify(withLogo.toSummary()), /secret-id/)
 })

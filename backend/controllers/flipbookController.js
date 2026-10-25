@@ -7,7 +7,7 @@ import { MAX_PDF_SIZE_BYTES, cleanFilename, hasPdfSignature } from '../utils/pdf
 import { deleteFlipbookAssets, deletePdf, fetchPageImage, pdfPublicId, uploadPdf } from '../utils/pdfStorage.js'
 import { getCloudinary } from '../config/cloudinary.js'
 import { VIEWER_STYLES, isViewerStyle } from '../utils/viewerStyles.js'
-import { parseReaderUpdate } from '../utils/readerSettings.js'
+import { contentsMaxPage, parseReaderUpdate } from '../utils/readerSettings.js'
 import { conversionQueueIsFull, queueConversion } from '../utils/pdfConversion.js'
 import { maxPagesForPlan, maxPublishedForPlan } from '../utils/planLimits.js'
 import { PublishError, changeSlug, isSlugRetired, publishFlipbook, publishedCountFor, unpublishFlipbook } from '../utils/publishing.js'
@@ -364,6 +364,22 @@ export async function updateFlipbookSettings(req, res) {
   const { error, changes, confirmSlugChange } = readDetails(body)
   if (error) return res.status(400).json({ success: false, message: error })
 
+  // Contents sections must point at pages the book has, so they can be set only once it is Ready.
+  // Checked before anything (including the slug) is written, and again in the update filter. An
+  // empty list can always be saved.
+  const contentsPages = contentsMaxPage(changes)
+  if (contentsPages > 0) {
+    const current = await Flipbook.findOne({ _id: id, ownerId: req.user._id }).select('status pageCount')
+    if (!current) return res.status(404).json({ success: false, message: 'Flipbook not found.' })
+    if (current.status === 'deleting') return res.status(409).json({ success: false, message: 'This flipbook is being deleted.' })
+    if (current.status !== 'ready' || !current.pageCount) {
+      return res.status(400).json({ success: false, message: 'Contents can be added once the flipbook is ready.' })
+    }
+    if (contentsPages > current.pageCount) {
+      return res.status(400).json({ success: false, message: `Section pages must be between 1 and ${current.pageCount}.` })
+    }
+  }
+
   let flipbook = null
   try {
     if (changes.slug) flipbook = await changeSlug(req.user, id, changes.slug, { confirmed: confirmSlugChange })
@@ -374,8 +390,9 @@ export async function updateFlipbookSettings(req, res) {
   const fieldUpdates = Object.fromEntries(Object.entries(changes).filter(([field]) => field !== 'slug'))
   if (Object.keys(fieldUpdates).length > 0) {
     // A flipbook being deleted is left alone. Publication, slug and pages are not touched here.
+    const statusFilter = contentsPages > 0 ? { status: 'ready', pageCount: { $gte: contentsPages } } : { status: { $ne: 'deleting' } }
     flipbook = await Flipbook.findOneAndUpdate(
-      { _id: id, ownerId: req.user._id, status: { $ne: 'deleting' } },
+      { _id: id, ownerId: req.user._id, ...statusFilter },
       { $set: fieldUpdates },
       { returnDocument: 'after', projection: { pages: 0, pdfAsset: 0 } }
     )

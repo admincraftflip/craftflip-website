@@ -154,3 +154,26 @@ export function fullscreenApi(doc = globalThis.document) {
     changeEvents: ['fullscreenchange', 'webkitfullscreenchange'],
   }
 }
+
+// ---------- Contents ----------
+
+// The table of contents opens beside the book on wide stages (the book stays visible) and covers
+// the stage on narrow ones, like the page overview.
+export const CONTENTS_SIDE_PANEL_MIN_WIDTH = 640
+
+export function contentsPanelLayout(stageWidth) {
+  return stageWidth >= CONTENTS_SIDE_PANEL_MIN_WIDTH ? 'side' : 'cover'
+}
+
+// The section being read: the last one starting on or before the last page on screen (so a
+// section that starts on the right-hand page of a spread is already the current one). -1 before
+// the first section. contents is sorted by page.
+export function currentSectionIndex(contents, visiblePages) {
+  if (!contents?.length || !visiblePages?.length) return -1
+  const lastShown = Math.max(...visiblePages)
+  let current = -1
+  contents.forEach((entry, index) => {
+    if (entry.page <= lastShown) current = index
+  })
+  return current
+}

@@ -91,6 +91,7 @@ export default function PublicViewerPage({ embed = false }) {
         viewerStyle={flipbook.viewerStyle}
         controlColor={isHexColor(reader.primaryColor) ? reader.primaryColor : undefined}
         cta={ctaToShow(reader)}
+        contents={reader.contents}
         tone={background?.tone ?? null}
         fullscreenRef={stageRef}
         onPagesShown={onPagesShown}

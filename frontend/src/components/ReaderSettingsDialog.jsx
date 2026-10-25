@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
+import { Plus, X } from 'lucide-react'
 import api from '../utils/api'
 import { saveFlipbookDetails } from '../utils/flipbookDetails'
 import { copyLink } from '../utils/publication'
@@ -7,6 +8,8 @@ import {
   BACKGROUND_PRESETS,
   EMBED_LIMITS,
   MAX_BACKGROUND_BYTES,
+  MAX_CONTENTS_ENTRIES,
+  MAX_CONTENTS_TITLE_LENGTH,
   MAX_CTA_LABEL_LENGTH,
   embedCode,
   presetThumbnailUrl,
@@ -51,12 +54,18 @@ function ColorField({ label, value, onChange, disabled, swatchDefault = SWATCH_D
   )
 }
 
+// Editable contents rows: the page is kept as typed until the form is checked.
+let nextRowKey = 0
+function contentsRows(contents) {
+  return contents.map((entry) => ({ key: nextRowKey++, title: entry.title, page: String(entry.page) }))
+}
+
 function GroupHeading({ children }) {
   return <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/60">{children}</h4>
 }
 
 // Reader settings for one flipbook, in three groups: Appearance (logo, background, button colour),
-// Actions (the call to action) and Reader settings (PDF download, embed code).
+// Actions (the call to action) and Reader settings (PDF download, table of contents, embed code).
 // Open while `flipbook` is set; the parent gives it a key per flipbook. onSaved receives the
 // server's updated flipbook after every successful change. The logo and the background image are
 // saved straight away; everything else is saved with "Save settings". The viewing style is chosen
@@ -71,6 +80,7 @@ export default function ReaderSettingsDialog({ flipbook, logoSrc, backgroundSrc,
     background: { kind: saved.background.kind, color: saved.background.color, preset: saved.background.preset },
     cta: saved.cta,
     allowDownload: saved.allowDownload,
+    contents: contentsRows(saved.contents),
   })
   const [saving, setSaving] = useState(false)
   const [imageBusy, setImageBusy] = useState(null)
@@ -88,16 +98,39 @@ export default function ReaderSettingsDialog({ flipbook, logoSrc, backgroundSrc,
   const setCta = (changes) => setForm((current) => ({ ...current, cta: { ...current.cta, ...changes } }))
   const setBackground = (changes) => setForm((current) => ({ ...current, background: { ...current.background, ...changes } }))
   const hasBackgroundImage = Boolean(saved.background.image)
+  const pageCount = flipbook?.pageCount ?? null
+  const setContents = (update) => setForm((current) => ({ ...current, contents: update(current.contents) }))
+  const contentsListRef = useRef(null)
+
+  function addSection() {
+    setContents((rows) => {
+      const lastPage = Number(rows.at(-1)?.page)
+      const page = Number.isInteger(lastPage) && lastPage >= 1 ? Math.min(lastPage + 1, pageCount) : 1
+      return [...rows, { key: nextRowKey++, title: '', page: String(page) }]
+    })
+    // Focus the new row's title once it is drawn.
+    requestAnimationFrame(() => contentsListRef.current?.querySelector('li:last-child input')?.focus())
+  }
+
+  function updateSection(key, changes) {
+    setContents((rows) => rows.map((row) => (row.key === key ? { ...row, ...changes } : row)))
+  }
+
+  function removeSection(key) {
+    setContents((rows) => rows.filter((row) => row.key !== key))
+  }
 
   async function handleSave(event) {
     event.preventDefault()
-    const localProblem = readerFormProblem(form)
+    const localProblem = readerFormProblem(form, pageCount)
     if (localProblem) return setProblem(localProblem)
     setSaving(true)
     setProblem(null)
     const result = await saveFlipbookDetails(api, flipbook.id, readerUpdate(form))
     setSaving(false)
     if (!result.ok) return setProblem(result.message)
+    // The server keeps the sections in page order; show them that way.
+    setForm((current) => ({ ...current, contents: contentsRows(readerOf(result.flipbook).contents) }))
     onSaved(result.flipbook)
     toast.success('Reader settings saved.')
   }
@@ -312,6 +345,65 @@ export default function ReaderSettingsDialog({ flipbook, logoSrc, backgroundSrc,
               Let visitors download the original PDF
             </label>
             <p className="text-xs text-base-content/60">When off, there is no download button and the download link is refused. Visitors can still take screenshots.</p>
+
+            <section className="mt-3 flex flex-col gap-2" aria-labelledby="contents-heading">
+              <h5 id="contents-heading" className="text-sm font-semibold">
+                Contents
+              </h5>
+              {pageCount ? (
+                <>
+                  {form.contents.length > 0 && (
+                    <ol ref={contentsListRef} className="flex flex-col gap-2">
+                      {form.contents.map((row, index) => (
+                        <li key={row.key} className="flex items-center gap-2">
+                          <input
+                            className="input input-bordered input-sm min-w-0 flex-1"
+                            placeholder="Section title"
+                            value={row.title}
+                            maxLength={MAX_CONTENTS_TITLE_LENGTH}
+                            onChange={(event) => updateSection(row.key, { title: event.target.value })}
+                            disabled={busy}
+                            aria-label={`Section ${index + 1} title`}
+                          />
+                          <input
+                            className="input input-bordered input-sm w-16 shrink-0 text-center tabular-nums"
+                            value={row.page}
+                            inputMode="numeric"
+                            onChange={(event) => updateSection(row.key, { page: event.target.value.replace(/\D/g, '').slice(0, 4) })}
+                            disabled={busy}
+                            aria-label={`Section ${index + 1} page, 1 to ${pageCount}`}
+                            title={`Page (1–${pageCount})`}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm btn-square shrink-0"
+                            onClick={() => removeSection(row.key)}
+                            disabled={busy}
+                            aria-label={`Remove section ${index + 1}`}
+                            title="Remove"
+                          >
+                            <X size={16} aria-hidden="true" />
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                  {form.contents.length < MAX_CONTENTS_ENTRIES && (
+                    <div>
+                      <button type="button" className="btn btn-outline btn-sm" onClick={addSection} disabled={busy}>
+                        <Plus size={16} aria-hidden="true" />
+                        Add section
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-xs text-base-content/60">
+                    Section titles and the page each starts on (1–{pageCount}), sorted by page when saved. Visitors open them from the Contents button in the reader, which is shown only when there is at least one section.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-base-content/70">Contents can be added once the flipbook is ready.</p>
+              )}
+            </section>
           </fieldset>
         </form>
 

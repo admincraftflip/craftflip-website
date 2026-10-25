@@ -878,6 +878,89 @@ test('invalid reader settings are refused with 400 and nothing is written', asyn
   assert.equal(flipbookModel.findOneAndUpdate.mock.callCount(), 0)
 })
 
+// The page-count check before a contents update reads the flipbook's status and page count.
+// onCall picks which findOne call answers with it (the next one by default).
+function contentsCheckFlipbook(fields, onCall = flipbookModel.findOne.mock.callCount()) {
+  flipbookModel.findOne.mock.mockImplementationOnce(
+    (filter) => ({
+      select: async () => (fields && String(filter.ownerId) === fields.ownerId ? { _id: filter._id, ...fields } : null),
+    }),
+    onCall
+  )
+}
+
+test('contents are saved sorted by page, only while the flipbook is Ready and every page is within the book', async () => {
+  const userId = newUserId()
+  const flipbookId = newUserId()
+  contentsCheckFlipbook({ ownerId: userId, status: 'ready', pageCount: 24 })
+  flipbookModel.findOneAndUpdate.mock.mockImplementationOnce(async (filter, update) => ({ toSummary: () => ({ id: flipbookId, reader: { contents: update.$set['reader.contents'] } }) }))
+  const response = await detailsRequest(userId, flipbookId, {
+    reader: { contents: [{ title: 'Floor plans', page: 24 }, { title: ' Welcome ', page: 1 }] },
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual((await response.json()).data.flipbook.reader.contents, [
+    { title: 'Welcome', page: 1 },
+    { title: 'Floor plans', page: 24 },
+  ])
+  const [lookup] = flipbookModel.findOne.mock.calls[0].arguments
+  assert.equal(String(lookup.ownerId), userId)
+  const [filter, update] = flipbookModel.findOneAndUpdate.mock.calls[0].arguments
+  assert.equal(String(filter.ownerId), userId)
+  // Checked again in the write itself, so the book cannot change in between.
+  assert.equal(filter.status, 'ready')
+  assert.deepEqual(filter.pageCount, { $gte: 24 })
+  assert.deepEqual(update, { $set: { 'reader.contents': [{ title: 'Welcome', page: 1 }, { title: 'Floor plans', page: 24 }] } })
+})
+
+test('contents pointing past the last page, or on a flipbook that is not Ready, are refused and nothing is written', async () => {
+  const userId = newUserId()
+  const cases = [
+    [{ ownerId: userId, status: 'ready', pageCount: 10 }, 400, 'Section pages must be between 1 and 10.'],
+    [{ ownerId: userId, status: 'processing', pageCount: null }, 400, 'Contents can be added once the flipbook is ready.'],
+    [{ ownerId: userId, status: 'failed', pageCount: null }, 400, 'Contents can be added once the flipbook is ready.'],
+    [{ ownerId: userId, status: 'deleting', pageCount: 20 }, 409, 'This flipbook is being deleted.'],
+    // Another owner's flipbook looks missing.
+    [{ ownerId: newUserId(), status: 'ready', pageCount: 20 }, 404, 'Flipbook not found.'],
+  ]
+  for (const [fields, status, message] of cases) {
+    contentsCheckFlipbook(fields)
+    const response = await detailsRequest(userId, newUserId(), { title: 'Renamed', slug: 'renamed-link', reader: { contents: [{ title: 'Gallery', page: 11 }] } })
+    assert.equal(response.status, status, JSON.stringify(fields))
+    assert.deepEqual(await response.json(), { success: false, message })
+  }
+  assert.equal(flipbookModel.findOneAndUpdate.mock.callCount(), 0)
+  assert.equal(publishing.changeSlug.mock.callCount(), 0, 'the link was not changed either')
+})
+
+test('an empty contents list can always be saved without a page check', async () => {
+  const userId = newUserId()
+  flipbookModel.findOneAndUpdate.mock.mockImplementationOnce(async () => ({ toSummary: () => ({ id: 'f' }) }))
+  assert.equal((await detailsRequest(userId, newUserId(), { reader: { contents: [] } })).status, 200)
+  assert.equal(flipbookModel.findOne.mock.callCount(), 0)
+  const [filter, update] = flipbookModel.findOneAndUpdate.mock.calls[0].arguments
+  assert.deepEqual(filter.status, { $ne: 'deleting' })
+  assert.deepEqual(update, { $set: { 'reader.contents': [] } })
+})
+
+test('a contents save that loses a race with deletion is refused with 409', async () => {
+  const userId = newUserId()
+  contentsCheckFlipbook({ ownerId: userId, status: 'ready', pageCount: 5 })
+  // Deleted between the page check and the write: the write finds nothing, the next read says why.
+  contentsCheckFlipbook({ ownerId: userId, status: 'deleting', pageCount: 5 }, 1)
+  const response = await detailsRequest(userId, newUserId(), { reader: { contents: [{ title: 'Welcome', page: 1 }] } })
+  assert.equal(response.status, 409)
+  assert.equal(flipbookModel.findOneAndUpdate.mock.callCount(), 1)
+})
+
+test('invalid contents are refused with 400 before any lookup', async () => {
+  for (const contents of [[{ title: '', page: 1 }], [{ title: 'Welcome', page: 1.5 }], [{ title: 'x'.repeat(81), page: 1 }], [{ title: 'Welcome', page: 1, href: 'x' }], 'Welcome']) {
+    const response = await detailsRequest(newUserId(), newUserId(), { reader: { contents } })
+    assert.equal(response.status, 400, JSON.stringify(contents))
+  }
+  assert.equal(flipbookModel.findOne.mock.callCount(), 0)
+  assert.equal(flipbookModel.findOneAndUpdate.mock.callCount(), 0)
+})
+
 async function logoFile(format = 'png') {
   return sharp({ create: { width: 900, height: 300, channels: 4, background: { r: 31, g: 78, b: 121, alpha: 1 } } })[format]().toBuffer()
 }
